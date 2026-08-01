@@ -16,11 +16,12 @@ window.VIDEO_APP_CONFIG = {
   domainConfigPath: "sys/dmCfg",
   signinPath: "users/signin",
   userInfoPath: "users/info",
+  shortCategoryPath: "videos/shortCate",
   videoCatalogPath: "videos/short",
   defaultVideoParams: {
     page: 1,
-    pageSize: 20,
-    categorieId: 0
+    pageSize: 10,
+    categorieId: ""
   },
 
   // sys/dmCfg 下发新的 API 域名后再次测速，并将后续登录和视频请求切到可用的新线路。
@@ -36,11 +37,14 @@ window.VIDEO_APP_CONFIG = {
 
   requestTimeoutMs: 10000,
   resourceProbeTimeoutMs: 4500,
+  categoryFallbackLimit: 8,
+  debugRequestLimit: 20,
   autoStart: true,
 
   storageKeys: {
     token: "hq-video-token",
     uuid: "hq-video-device-uuid",
+    categoryId: "hq-video-category-id",
     apiCandidates: "hq-video-api-candidates",
     captchaCode: "hq-video-captcha-code",
     captchaKey: "hq-video-captcha-key"
