@@ -3,36 +3,38 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#090d18">
   <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#0b1020">
-  <meta name="description" content="支持 HLS、MP4、线路测速与故障切换的静态视频播放器">
-  <title>视频线路播放器</title>
+  <meta name="referrer" content="no-referrer">
+  <title>好妻网 · Web 视频播放器</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <div class="app-shell">
     <header class="topbar">
       <div>
-        <p class="eyebrow">STATIC HLS PLAYER</p>
-        <h1 id="app-title">视频线路播放器</h1>
+        <p class="eyebrow">APK 1.2.75 WEB CLIENT</p>
+        <h1 id="app-title">好妻网 · Web 视频播放器</h1>
+        <p class="subtitle">自动测速、解密接口、加载服务器线路与视频数据</p>
       </div>
-      <div id="connection-badge" class="badge badge-idle">尚未测速</div>
+      <div id="connection-badge" class="badge badge-busy">正在初始化…</div>
     </header>
 
-    <main class="layout">
-      <section class="player-panel panel">
+    <main class="main-grid">
+      <section class="panel player-panel">
         <div class="video-wrap">
           <video id="video" controls playsinline preload="metadata"></video>
           <div id="player-empty" class="player-empty">
-            <strong>选择视频或粘贴播放地址</strong>
-            <span>支持 m3u8/HLS 与 MP4</span>
+            <strong>正在连接服务器</strong>
+            <span>连接成功后会自动显示视频列表</span>
           </div>
         </div>
 
         <div class="now-playing">
           <div>
             <p class="label">正在播放</p>
-            <h2 id="now-title">未选择视频</h2>
+            <h2 id="now-title">尚未选择视频</h2>
+            <p id="now-url" class="mono muted">—</p>
           </div>
           <button id="copy-url" class="ghost-button" type="button" disabled>复制地址</button>
         </div>
@@ -44,53 +46,93 @@
             <button type="submit">播放</button>
           </div>
         </form>
-
-        <details class="debug-box">
-          <summary>运行日志</summary>
-          <pre id="log-output">等待操作…</pre>
-        </details>
       </section>
 
-      <aside class="sidebar">
-        <section class="panel control-panel">
+      <aside class="side-stack">
+        <section class="panel status-panel">
           <div class="section-heading">
             <div>
-              <p class="label">线路配置</p>
-              <h2>API 节点</h2>
+              <p class="label">实时状态</p>
+              <h2>服务器连接</h2>
             </div>
-            <button id="probe-button" type="button">测速选择</button>
+            <button id="restart-button" type="button">重新连接</button>
           </div>
-
-          <label for="api-candidates">每行一个 API 基础地址</label>
-          <textarea id="api-candidates" rows="5" spellcheck="false" placeholder="https://api.example.com/api/v1/"></textarea>
-          <p class="hint">仅填写你拥有或获准使用的接口。配置保存在当前浏览器。</p>
 
           <dl class="status-list">
             <div><dt>当前 API</dt><dd id="active-api">—</dd></div>
-            <div><dt>资源节点</dt><dd id="resource-count">0</dd></div>
-            <div><dt>线路耗时</dt><dd id="active-latency">—</dd></div>
+            <div><dt>API 延迟</dt><dd id="active-latency">—</dd></div>
+            <div><dt>资源线路</dt><dd id="active-resource">—</dd></div>
+            <div><dt>视频数量</dt><dd id="video-count">0</dd></div>
           </dl>
         </section>
 
-        <section class="panel library-panel">
-          <div class="section-heading">
-            <div>
-              <p class="label">视频目录</p>
-              <h2>可播放内容</h2>
-            </div>
-            <button id="reload-catalog" class="ghost-button" type="button">刷新</button>
+        <section class="panel auth-panel">
+          <p class="label">可选登录态</p>
+          <h2>Token</h2>
+          <p class="hint">APK 中没有固定 Token。匿名接口会使用空 Token；需要账号数据时可粘贴自己的 Token。</p>
+          <div class="input-row">
+            <input id="token-input" type="password" placeholder="留空表示匿名访问" autocomplete="off">
+            <button id="save-token" type="button">保存并刷新</button>
           </div>
-          <div id="video-list" class="video-list" aria-live="polite"></div>
         </section>
       </aside>
     </main>
 
+    <section class="panel library-panel">
+      <div class="section-heading">
+        <div>
+          <p class="label">服务器视频数据</p>
+          <h2>视频列表</h2>
+        </div>
+        <div class="toolbar">
+          <button id="previous-page" class="ghost-button" type="button">上一页</button>
+          <span id="page-label" class="page-label">第 1 页</span>
+          <button id="next-page" class="ghost-button" type="button">下一页</button>
+          <button id="reload-catalog" type="button">刷新</button>
+        </div>
+      </div>
+      <div id="video-list" class="video-list" aria-live="polite">
+        <div class="empty-list">等待服务器返回数据…</div>
+      </div>
+    </section>
+
+    <section class="data-grid">
+      <article class="panel data-panel">
+        <div class="section-heading">
+          <div>
+            <p class="label">sys/dmCfg</p>
+            <h2>域名配置数据</h2>
+          </div>
+          <button class="ghost-button copy-json" data-target="domain-json" type="button">复制 JSON</button>
+        </div>
+        <pre id="domain-json">等待请求…</pre>
+      </article>
+
+      <article class="panel data-panel">
+        <div class="section-heading">
+          <div>
+            <p class="label">videos/short</p>
+            <h2>视频接口数据</h2>
+          </div>
+          <button class="ghost-button copy-json" data-target="catalog-json" type="button">复制 JSON</button>
+        </div>
+        <pre id="catalog-json">等待请求…</pre>
+      </article>
+    </section>
+
+    <details class="panel debug-panel" open>
+      <summary>运行日志与测速结果</summary>
+      <pre id="log-output">页面启动中…</pre>
+    </details>
+
     <footer>
-      纯静态部署 · 浏览器直接播放 · 不包含第三方私有密钥
+      纯静态 GitHub Pages 客户端 · API 数据在浏览器内 AES 解密 · Token 仅保存在当前浏览器
     </footer>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js" crossorigin="anonymous"></script>
   <script src="./config.js"></script>
   <script src="./app.js"></script>
 </body>
