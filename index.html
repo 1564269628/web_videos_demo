@@ -86,6 +86,10 @@
           <h2>视频列表</h2>
         </div>
         <div class="toolbar">
+          <label class="category-control">
+            <span>分类</span>
+            <select id="category-select" disabled><option>加载中…</option></select>
+          </label>
           <button id="previous-page" class="ghost-button" type="button">上一页</button>
           <span id="page-label" class="page-label">第 1 页</span>
           <button id="next-page" class="ghost-button" type="button">下一页</button>
@@ -113,11 +117,33 @@
         <div class="section-heading">
           <div>
             <p class="label">videos/short</p>
-            <h2>视频接口数据</h2>
+            <h2>视频接口数据与分类回退</h2>
           </div>
           <button class="ghost-button copy-json" data-target="catalog-json" type="button">复制 JSON</button>
         </div>
         <pre id="catalog-json">等待请求…</pre>
+      </article>
+
+      <article class="panel data-panel">
+        <div class="section-heading">
+          <div>
+            <p class="label">videos/shortCate</p>
+            <h2>短视频分类数据</h2>
+          </div>
+          <button class="ghost-button copy-json" data-target="category-json" type="button">复制 JSON</button>
+        </div>
+        <pre id="category-json">等待请求…</pre>
+      </article>
+
+      <article class="panel data-panel">
+        <div class="section-heading">
+          <div>
+            <p class="label">NETWORK DEBUG</p>
+            <h2>完整接口请求与响应</h2>
+          </div>
+          <button class="ghost-button copy-json" data-target="request-json" type="button">复制 JSON</button>
+        </div>
+        <pre id="request-json">等待请求…</pre>
       </article>
     </section>
 
@@ -134,7 +160,8 @@
   <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js" crossorigin="anonymous"></script>
-  <script src="./config.js?v=20260801-2"></script>
-  <script src="./app.js?v=20260801-2"></script>
+  <script src="./config.js?v=20260801-4"></script>
+  <script src="./diagnostics.js?v=20260801-4"></script>
+  <script src="./app.js?v=20260801-4"></script>
 </body>
 </html>
