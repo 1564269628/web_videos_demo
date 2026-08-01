@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0b1020">
+  <meta name="description" content="支持 HLS、MP4、线路测速与故障切换的静态视频播放器">
+  <title>视频线路播放器</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">STATIC HLS PLAYER</p>
+        <h1 id="app-title">视频线路播放器</h1>
+      </div>
+      <div id="connection-badge" class="badge badge-idle">尚未测速</div>
+    </header>
+
+    <main class="layout">
+      <section class="player-panel panel">
+        <div class="video-wrap">
+          <video id="video" controls playsinline preload="metadata"></video>
+          <div id="player-empty" class="player-empty">
+            <strong>选择视频或粘贴播放地址</strong>
+            <span>支持 m3u8/HLS 与 MP4</span>
+          </div>
+        </div>
+
+        <div class="now-playing">
+          <div>
+            <p class="label">正在播放</p>
+            <h2 id="now-title">未选择视频</h2>
+          </div>
+          <button id="copy-url" class="ghost-button" type="button" disabled>复制地址</button>
+        </div>
+
+        <form id="manual-form" class="manual-form">
+          <label for="manual-url">手动播放地址</label>
+          <div class="input-row">
+            <input id="manual-url" type="url" placeholder="https://example.com/video.m3u8" autocomplete="off" required>
+            <button type="submit">播放</button>
+          </div>
+        </form>
+
+        <details class="debug-box">
+          <summary>运行日志</summary>
+          <pre id="log-output">等待操作…</pre>
+        </details>
+      </section>
+
+      <aside class="sidebar">
+        <section class="panel control-panel">
+          <div class="section-heading">
+            <div>
+              <p class="label">线路配置</p>
+              <h2>API 节点</h2>
+            </div>
+            <button id="probe-button" type="button">测速选择</button>
+          </div>
+
+          <label for="api-candidates">每行一个 API 基础地址</label>
+          <textarea id="api-candidates" rows="5" spellcheck="false" placeholder="https://api.example.com/api/v1/"></textarea>
+          <p class="hint">仅填写你拥有或获准使用的接口。配置保存在当前浏览器。</p>
+
+          <dl class="status-list">
+            <div><dt>当前 API</dt><dd id="active-api">—</dd></div>
+            <div><dt>资源节点</dt><dd id="resource-count">0</dd></div>
+            <div><dt>线路耗时</dt><dd id="active-latency">—</dd></div>
+          </dl>
+        </section>
+
+        <section class="panel library-panel">
+          <div class="section-heading">
+            <div>
+              <p class="label">视频目录</p>
+              <h2>可播放内容</h2>
+            </div>
+            <button id="reload-catalog" class="ghost-button" type="button">刷新</button>
+          </div>
+          <div id="video-list" class="video-list" aria-live="polite"></div>
+        </section>
+      </aside>
+    </main>
+
+    <footer>
+      纯静态部署 · 浏览器直接播放 · 不包含第三方私有密钥
+    </footer>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js" integrity="sha256-OILvEtL7SpMnxgIYgROc9dU/6p1hZz9cfxVQ70P2K9Y=" crossorigin="anonymous"></script>
+  <script src="./config.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
