@@ -1,27 +1,38 @@
 window.VIDEO_APP_CONFIG = {
-  appName: "视频线路播放器",
+  appName: "好妻网 · Web 视频播放器",
   pid: "PH",
+  webVersion: "1.2.75",
 
-  // 仅填写你拥有或获准使用的 API。页面中的输入框也可以临时覆盖此列表。
-  apiCandidates: [],
+  // APK 1.2.75 内置的 API 引导线路。
+  apiCandidates: [
+    "https://d1n2abym1937a5.cloudfront.net/api/v1/",
+    "https://fall.faj135.com/api/v1/",
+    "https://gk.ifryz.cc/api/v1/",
+    "https://134.122.129.9:19888/api/v1/",
+    "https://34.92.95.149:19888/api/v1/"
+  ],
 
-  // 与 APK 中观察到的“测速 → 选择 API → 拉取域名配置”架构相似，
-  // 但这里默认只处理普通 JSON，不包含任何第三方私有密钥或鉴权信息。
   speedtestPath: "speedtest",
   domainConfigPath: "sys/dmCfg",
-  catalogPath: "./data/videos.json",
-
-  requestTimeoutMs: 4500,
-  scoreWeights: {
-    server: 0.75,
-    latency: 0.25
+  videoCatalogPath: "videos/short",
+  defaultVideoParams: {
+    page: 1,
+    pageSize: 20,
+    categorieId: 0
   },
 
-  // 可选：配置你自己的远程视频目录接口，例如 "videos/short"。
-  // 返回值可为数组，或放在 data/list/items/records 中。
-  remoteCatalogPath: "",
+  // APK 中使用的 AES-256-ECB-PKCS7 业务数据密钥。
+  aesKey: "sFRUdDdCbu62vfSnrJaPedBRCyKyLu8m",
+
+  // APK assets/www/encrypt.key 的 16 字节内容，用于 HLS AES-128 分片解密。
+  mediaKeyBase64: "HscELgq8dVNfyKujQOGoaA==",
+
+  requestTimeoutMs: 10000,
+  resourceProbeTimeoutMs: 4500,
+  autoStart: true,
 
   storageKeys: {
-    candidates: "video-player-api-candidates"
+    token: "hq-video-token",
+    apiCandidates: "hq-video-api-candidates"
   }
 };
