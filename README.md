@@ -1,169 +1,24 @@
 # Web Videos Demo
 
-一个可以直接部署到 GitHub Pages 的静态视频播放器，支持：
+这是从 APK 1.2.75 的网络与播放逻辑整理出的 GitHub Pages 静态客户端。打开网页后会自动：
 
-- HLS / `.m3u8` 播放（hls.js）
-- MP4 等浏览器原生格式
-- 多 API 节点并发测速
-- 服务器评分 75% + 网络延迟 25% 的加权选线
-- 从选中 API 获取域名配置
-- 多资源节点播放失败自动切换
-- 本地 JSON 或远程 API 视频目录
-- 手动粘贴视频地址播放
-- GitHub Actions 自动部署 Pages
+1. 测试 APK 内置的 5 条 API 引导线路。
+2. 按 APK 规则选线：优先采用最先返回且 `data.s >= 5` 的线路；否则按 `服务器评分 × 75% + 延迟评分 × 25%` 选择。
+3. 请求 `GET sys/dmCfg?pid=PH`。
+4. 使用 APK 的 AES-256-ECB-PKCS7 密钥解密 `data`，再进行 Base64 解码、zlib 解压和 JSON 解析。
+5. 从服务器配置中选择资源线路。
+6. 请求 `GET videos/short` 并展示解密后的原始数据和视频卡片。
+7. 播放时使用请求头 `m: 1` 获取压缩的 m3u8，zlib 解压后替换 HLS AES-128 密钥并交给 hls.js 播放。
 
-## 安全边界
+## 部署
 
-这个仓库复现的是通用的“本地网页 + 多线路测速 + 动态资源域名 + HLS 播放”架构，不包含从第三方 APK 提取的私有域名、Token、AES 密钥或绕过鉴权的代码。
-
-请只接入你拥有或明确获准使用的服务器和媒体内容。
-
-## 本地运行
-
-不要直接双击 `index.html`，请使用本地 HTTP 服务：
-
-```bash
-python -m http.server 8080
-```
-
-然后访问：
-
-```text
-http://localhost:8080
-```
-
-## 配置 API 节点
-
-可以直接在网页的“API 节点”输入框中填写，每行一个地址；也可以编辑 `config.js`：
-
-```js
-window.VIDEO_APP_CONFIG = {
-  apiCandidates: [
-    "https://api-1.example.com/api/v1/",
-    "https://api-2.example.com/api/v1/"
-  ],
-  speedtestPath: "speedtest",
-  domainConfigPath: "sys/dmCfg",
-  remoteCatalogPath: "videos/short"
-};
-```
-
-页面会请求：
-
-```text
-GET <API基础地址>/speedtest
-GET <API基础地址>/sys/dmCfg?pid=PH
-```
-
-测速响应可以是：
-
-```json
-{
-  "data": {
-    "s": 8
-  }
-}
-```
-
-其中 `s` 建议为 0 到 10。没有 `s` 时仍会按网络延迟选线。
-
-## 域名配置格式
-
-支持普通 JSON：
-
-```json
-{
-  "data": {
-    "apiDomains": [
-      "https://api-1.example.com/api/v1/"
-    ],
-    "resDomains": [
-      "https://media-1.example.com/",
-      "https://media-2.example.com/"
-    ]
-  }
-}
-```
-
-当视频目录里的 `url` 是相对路径时，例如：
-
-```json
-{
-  "id": 1001,
-  "title": "示例视频",
-  "url": "hls/1001/index.m3u8",
-  "poster": "covers/1001.jpg"
-}
-```
-
-播放器会依次拼接 `resDomains`，某条 HLS 资源线路网络失败后自动尝试下一条。
-
-## 视频目录格式
-
-本地目录位于 `data/videos.json`。支持数组，或位于以下任意字段中：
-
-- `data`
-- `list`
-- `items`
-- `records`
-- `rows`
-- `videos`
-
-常见字段会自动适配：
-
-```json
-{
-  "items": [
-    {
-      "id": "demo-1",
-      "title": "演示视频",
-      "url": "https://example.com/video.m3u8",
-      "poster": "https://example.com/poster.jpg",
-      "description": "HLS"
-    }
-  ]
-}
-```
-
-播放地址字段支持：
-
-```text
-url / playUrl / play_url / videoUrl / video_url / src
-```
-
-封面字段支持：
-
-```text
-poster / cover / coverUrl / cover_url / thumb
-```
-
-## CORS 要求
-
-GitHub Pages 是浏览器静态站点，API、m3u8 和视频分片服务器必须允许跨域访问。服务器至少应根据实际需求返回类似：
-
-```http
-Access-Control-Allow-Origin: https://1564269628.github.io
-Access-Control-Allow-Headers: Content-Type, Range
-Access-Control-Expose-Headers: Content-Length, Content-Range
-```
-
-HLS 的 `.m3u8`、密钥文件和所有分片都必须允许跨域，否则浏览器会拦截。
-
-## 部署 GitHub Pages
-
-仓库已包含：
-
-```text
-.github/workflows/pages.yml
-```
-
-在仓库中打开：
+仓库已经包含 `.github/workflows/pages.yml`。在仓库中打开：
 
 ```text
 Settings → Pages → Build and deployment → Source → GitHub Actions
 ```
 
-然后重新运行 `Deploy GitHub Pages` 工作流，或向 `main` 分支推送一次提交。
+然后推送到 `main`，或在 Actions 中手动运行部署工作流。
 
 预期地址：
 
@@ -171,4 +26,54 @@ Settings → Pages → Build and deployment → Source → GitHub Actions
 https://1564269628.github.io/web_videos_demo/
 ```
 
-注意：仓库当前是私有仓库。GitHub Pages 对私有仓库的可用性和访问范围取决于账号方案与仓库设置。
+## 关键配置
+
+都在 `config.js`：
+
+- `apiCandidates`：APK 内置的 API 引导域名。
+- `aesKey`：业务接口 AES 密钥。
+- `mediaKeyBase64`：APK 的 `assets/www/encrypt.key`。
+- `pid`：`PH`。
+- `webVersion`：`1.2.75`。
+
+## Token
+
+APK 中没有硬编码的用户 Token。Token 是登录后动态生成并保存在本地存储中的。因此网页默认使用空 Token 访问匿名接口；需要账号接口时，可在网页 Token 输入框中粘贴自己的 Token。Token 只保存在当前浏览器的 `localStorage`。
+
+也支持临时 URL 参数：
+
+```text
+?token=你的Token
+```
+
+不建议分享带 Token 的 URL。
+
+## 浏览器限制
+
+GitHub Pages 是纯静态站点，请求能否成功还取决于服务器：
+
+- 必须允许来自 `https://1564269628.github.io` 的 CORS 请求。
+- 必须允许请求头 `t`、`k`、`token`、`version`、`m`。
+- HTTPS 证书必须受浏览器信任。两个裸 IP 备用线路可能因证书不匹配而失败，网页会自动尝试其他域名。
+- 如果服务端只允许 Cordova 的 `file://` / WebView 来源，需要在服务端补充 GitHub Pages 域名到 CORS 白名单。
+
+## 接口加密格式
+
+请求 POST 数据：
+
+```json
+{
+  "en": "AES-ECB-PKCS7(JSON.stringify(data))"
+}
+```
+
+响应数据：
+
+```text
+response.data
+→ AES-256-ECB-PKCS7 解密
+→ 得到 Base64 字符串
+→ Base64 解码
+→ zlib inflate
+→ JSON.parse
+```
