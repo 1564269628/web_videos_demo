@@ -1,0 +1,25 @@
+{
+  "items": [
+    {
+      "id": "big-buck-bunny-hls",
+      "title": "Big Buck Bunny · HLS 示例",
+      "description": "公开测试用 m3u8 流",
+      "url": "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+      "poster": ""
+    },
+    {
+      "id": "tears-of-steel",
+      "title": "Tears of Steel · MP4 示例",
+      "description": "公开测试视频",
+      "url": "https://storage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+      "poster": "https://storage.googleapis.com/gtv-videos-bucket/sample/images/TearsOfSteel.jpg"
+    },
+    {
+      "id": "for-bigger-blazes",
+      "title": "For Bigger Blazes · MP4 示例",
+      "description": "短片测试视频",
+      "url": "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+      "poster": "https://storage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerBlazes.jpg"
+    }
+  ]
+}
