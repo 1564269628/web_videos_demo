@@ -14,12 +14,19 @@ window.VIDEO_APP_CONFIG = {
 
   speedtestPath: "speedtest",
   domainConfigPath: "sys/dmCfg",
+  signinPath: "users/signin",
+  userInfoPath: "users/info",
   videoCatalogPath: "videos/short",
   defaultVideoParams: {
     page: 1,
     pageSize: 20,
     categorieId: 0
   },
+
+  // sys/dmCfg 下发新的 API 域名后再次测速，并将后续登录和视频请求切到可用的新线路。
+  useDynamicApiDomains: true,
+  defaultChannel: "",
+  defaultInviteCode: "",
 
   // APK 中使用的 AES-256-ECB-PKCS7 业务数据密钥。
   aesKey: "sFRUdDdCbu62vfSnrJaPedBRCyKyLu8m",
@@ -33,6 +40,9 @@ window.VIDEO_APP_CONFIG = {
 
   storageKeys: {
     token: "hq-video-token",
-    apiCandidates: "hq-video-api-candidates"
+    uuid: "hq-video-device-uuid",
+    apiCandidates: "hq-video-api-candidates",
+    captchaCode: "hq-video-captcha-code",
+    captchaKey: "hq-video-captcha-key"
   }
 };
