@@ -1,10 +1,11 @@
 (() => {
   "use strict";
 
-  const VERSION = "20260802-22-preview";
-  const CORE_URL = `./archive-global-downloader.js?v=${VERSION}`;
+  const VERSION = "20260802-23-preview";
+  const CORE_URL = "./archive-global-downloader.js";
   const BUTTON_ID = "archive-global-entry-button";
-  let coreReloadPromise = null;
+  const nativeFetch = window.__nativeFetch || window.fetch.bind(window);
+  let coreRecoveryPromise = null;
   let opening = false;
   let autoOpened = false;
 
@@ -42,7 +43,6 @@
     center.open();
     await waitFor(() => document.querySelector(".archive-center-header-actions"), 8000);
 
-    // V2 预览默认进入归档总目录模式，不自动恢复上次的单作者目录。
     try {
       await center.forgetFolder?.();
       log("已关闭上次单作者目录的自动恢复");
@@ -87,19 +87,64 @@
     return false;
   }
 
-  function reloadCore() {
-    if (coreReloadPromise) return coreReloadPromise;
-    coreReloadPromise = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = `${CORE_URL}&reload=${Date.now()}`;
-      script.async = true;
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error("archive-global-downloader.js 加载失败"));
-      document.head.append(script);
+  function extractPayload(wrapperSource) {
+    const match = wrapperSource.match(/const\s+payload\s*=\s*["']([A-Za-z0-9+/=]+)["']\s*;/);
+    if (!match?.[1]) throw new Error("核心包装脚本中没有找到 gzip payload");
+    return match[1];
+  }
+
+  function decodePayload(payload) {
+    if (!window.pako?.ungzip) throw new Error("pako 尚未加载，无法恢复核心脚本");
+    const bytes = Uint8Array.from(atob(payload), (char) => char.charCodeAt(0));
+    const source = window.pako.ungzip(bytes, { to: "string" });
+    if (!source || source.length < 1000) throw new Error("pako 解压结果异常");
+    return source;
+  }
+
+  function executeRecoveredSource(source) {
+    const script = document.createElement("script");
+    script.textContent = `${source}\n//# sourceURL=archive-global-downloader.recovered.js`;
+    document.head.append(script);
+    script.remove();
+  }
+
+  function recoverCore() {
+    if (globalModal() || coreOpenButton()) return Promise.resolve(true);
+    if (coreRecoveryPromise) return coreRecoveryPromise;
+
+    coreRecoveryPromise = (async () => {
+      log("原核心自解压失败，正在改用 pako 恢复");
+      const response = await nativeFetch(`${CORE_URL}?recovery=${Date.now()}`, {
+        cache: "no-store",
+        credentials: "same-origin"
+      });
+      if (!response.ok) throw new Error(`读取核心包装脚本失败：HTTP ${response.status}`);
+      const wrapperSource = await response.text();
+      const payload = extractPayload(wrapperSource);
+      log("已读取核心 gzip 数据", {
+        wrapperBytes: wrapperSource.length,
+        payloadChars: payload.length,
+        pako: Boolean(window.pako?.ungzip)
+      });
+      const source = decodePayload(payload);
+      log("pako 解压成功，正在执行核心代码", { sourceBytes: source.length });
+      executeRecoveredSource(source);
+      const ready = await waitFor(() => globalModal() || coreOpenButton(), 10000, 80);
+      if (!ready) throw new Error("核心代码已执行，但没有创建全部作者下载界面");
+      log("全部作者下载器核心恢复成功");
+      return true;
+    })().catch((error) => {
+      log("pako 恢复核心脚本失败", {
+        name: error?.name,
+        message: error?.message || String(error),
+        pako: Boolean(window.pako?.ungzip)
+      }, "error");
+      throw error;
     }).finally(() => {
-      setTimeout(() => { coreReloadPromise = null; }, 2000);
+      coreRecoveryPromise = null;
     });
-    return coreReloadPromise;
+
+    return coreRecoveryPromise;
   }
 
   async function openGlobalDownloader({ auto = false } = {}) {
@@ -111,18 +156,17 @@
 
       if (revealModal()) return;
 
-      log("全局下载器尚未创建，重新加载核心脚本");
-      await reloadCore();
-      const ready = await waitFor(() => globalModal() || coreOpenButton(), 10000, 80);
-      if (!ready || !revealModal()) {
-        throw new Error("核心脚本已加载，但没有创建全部作者下载界面");
+      await recoverCore();
+      if (!revealModal()) {
+        throw new Error("核心脚本恢复完成，但没有找到全部作者下载界面");
       }
     } catch (error) {
       log("打开全部作者下载中心失败", {
         error: error.message || String(error),
         coreLoaded: Boolean(document.querySelector('script[src*="archive-global-downloader.js"]')),
         modalExists: Boolean(globalModal()),
-        archiveCenter: Boolean(window.ARCHIVE_CENTER)
+        archiveCenter: Boolean(window.ARCHIVE_CENTER),
+        pako: Boolean(window.pako?.ungzip)
       }, "error");
       if (!auto) {
         alert(`全部作者下载中心启动失败：${error.message || error}\n\n请在页面底部日志查看“全部作者入口”信息。`);
@@ -153,24 +197,26 @@
       const observer = new MutationObserver(() => installButton());
       observer.observe(document.documentElement, { childList: true, subtree: true });
 
-      // 预览版默认直接展示全部作者下载中心；单作者中心仍可通过“选择作者文件夹”使用。
-      if (!autoOpened) {
-        autoOpened = true;
-        setTimeout(() => openGlobalDownloader({ auto: true }), 250);
-      }
-
       window.ARCHIVE_GLOBAL_ENTRY = {
         version: VERSION,
         open: openGlobalDownloader,
+        recover: recoverCore,
         get status() {
           return {
             modalExists: Boolean(globalModal()),
             buttonExists: Boolean(document.getElementById(BUTTON_ID)),
             coreButtonExists: Boolean(coreOpenButton()),
+            recovering: Boolean(coreRecoveryPromise),
+            pako: Boolean(window.pako?.ungzip),
             opening
           };
         }
       };
+
+      if (!autoOpened) {
+        autoOpened = true;
+        setTimeout(() => openGlobalDownloader({ auto: true }), 250);
+      }
     } catch (error) {
       log("全部作者入口初始化失败", error.message || String(error), "error");
     }
