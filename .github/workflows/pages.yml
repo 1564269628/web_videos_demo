@@ -29,10 +29,10 @@ jobs:
           ref: main
           path: site
 
-      - name: Checkout archive center V2 preview
+      - name: Checkout current branch as preview source
         uses: actions/checkout@v4
         with:
-          ref: feature/archive-center-v2-preview
+          ref: ${{ github.ref_name }}
           path: preview-source
 
       - name: Assemble stable root and branch preview
@@ -45,7 +45,7 @@ jobs:
             --exclude '.git/' \
             --exclude '.github/' \
             preview-source/ site/previews/archive-center-v2/
-          printf '%s\n' 'feature/archive-center-v2-preview' > site/previews/archive-center-v2/PREVIEW_BRANCH.txt
+          printf '%s\n' "${GITHUB_REF_NAME}" > site/previews/archive-center-v2/PREVIEW_BRANCH.txt
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
