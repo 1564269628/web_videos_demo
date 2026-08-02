@@ -18,6 +18,9 @@ window.VIDEO_APP_CONFIG = {
   userInfoPath: "users/info",
   shortCategoryPath: "videos/shortCate",
   videoCatalogPath: "videos/short",
+  authorInfoPath: "users/{uid}/info",
+  authorVideosPath: "users/{uid}/videos",
+  videoDetailPath: "videos/{id}",
   defaultVideoParams: {
     page: 1,
     pageSize: 10,
@@ -32,6 +35,9 @@ window.VIDEO_APP_CONFIG = {
   // APK 中使用的 AES-256-ECB-PKCS7 业务数据密钥。
   aesKey: "sFRUdDdCbu62vfSnrJaPedBRCyKyLu8m",
 
+  // APK 的 .ceb/.geb 图片解密密钥。
+  imageAesKey: "82758dd12749c777ef579f1839ceea6a",
+
   // APK assets/www/encrypt.key 的 16 字节内容，用于 HLS AES-128 分片解密。
   mediaKeyBase64: "HscELgq8dVNfyKujQOGoaA==",
 
@@ -39,6 +45,7 @@ window.VIDEO_APP_CONFIG = {
   resourceProbeTimeoutMs: 4500,
   categoryFallbackLimit: 8,
   debugRequestLimit: 20,
+  authorPageSize: 12,
   autoStart: true,
 
   storageKeys: {
