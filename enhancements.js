@@ -9,6 +9,9 @@
     videosById: new Map(),
     currentVideo: null,
     imageCache: new Map(),
+    imageResults: new Map(),
+    imageFailures: new Map(),
+    resourceBases: [],
     authorPage: 1,
     activeAuthor: null,
     enhancing: false,
@@ -137,68 +140,212 @@
       .slice(0, 100) || "video";
   }
 
-  function resolveAsset(path, size = 0) {
+  function unique(values) {
+    return [...new Set(values.filter(Boolean))];
+  }
+
+  function getResourceBases() {
+    return unique([
+      currentResource(),
+      ...state.resourceBases,
+      currentApi()
+    ].map(normalizeBase));
+  }
+
+  function assetCandidates(path, size = 0) {
     const raw = String(path || "").trim();
-    if (!raw) return "";
-    if (/^data:image\//i.test(raw) || /^blob:/i.test(raw)) return raw;
-    try {
-      if (/^https?:\/\//i.test(raw)) return raw;
-      const base = currentResource() || currentApi();
-      if (!base) return "";
-      let resolved = joinUrl(base, raw);
-      if (size && /\.(ceb|geb)(?:$|[?#])/i.test(resolved) && !resolved.includes("@")) {
-        resolved += `@webp-${size}`;
+    if (!raw) return [];
+    if (/^data:image\//i.test(raw) || /^blob:/i.test(raw)) return [raw];
+
+    const absolute = /^https?:\/\//i.test(raw);
+    const bases = absolute ? [""] : getResourceBases();
+    const urls = [];
+    for (const base of bases) {
+      try {
+        const original = absolute ? new URL(raw).href : joinUrl(base, raw);
+        if (size && /\.(ceb|geb)(?:$|[?#])/i.test(original) && !/@(?:webp|png)-\d+/i.test(original)) {
+          // 与 APK 的 dowloadJpegImg 一致：优先请求 @webp-N，失败后回退原文件。
+          urls.push(`${original}@webp-${Number(size) === 240 ? 480 : Number(size)}`);
+        }
+        urls.push(original);
+      } catch {
+        // 继续尝试其他资源线路。
       }
-      return resolved;
-    } catch {
-      return "";
     }
+    return unique(urls);
+  }
+
+  function detectImageMime(bytes) {
+    if (!bytes || bytes.length < 4) return "";
+    if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+    if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
+    if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) return "image/gif";
+    if (
+      bytes.length >= 12 &&
+      bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+      bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+    ) return "image/webp";
+    if (bytes.length >= 12) {
+      const brand = String.fromCharCode(...bytes.subarray(4, 12));
+      if (brand.includes("ftypavif") || brand.includes("ftypavis")) return "image/avif";
+    }
+    return "";
+  }
+
+  function wordArrayToBytes(wordArray) {
+    const words = wordArray.words || [];
+    const length = wordArray.sigBytes || 0;
+    const bytes = new Uint8Array(length);
+    for (let i = 0; i < length; i += 1) {
+      bytes[i] = (words[i >>> 2] >>> (24 - (i % 4) * 8)) & 0xff;
+    }
+    return bytes;
+  }
+
+  function normalizeDecryptedImage(decrypted) {
+    let text = "";
+    try {
+      text = CryptoJS.enc.Utf8.stringify(decrypted).replace(/\0+$/g, "").trim();
+    } catch {
+      text = "";
+    }
+    if (/^data:image\//i.test(text)) return text;
+
+    if (text && /^[A-Za-z0-9+/=\s]+$/.test(text)) {
+      const clean = text.replace(/\s+/g, "");
+      try {
+        const decoded = base64ToBytes(clean);
+        const mime = detectImageMime(decoded) || "image/webp";
+        return `data:${mime};base64,${clean}`;
+      } catch {
+        // 继续尝试把解密结果当二进制图片。
+      }
+    }
+
+    const bytes = wordArrayToBytes(decrypted);
+    const mime = detectImageMime(bytes);
+    if (mime) return URL.createObjectURL(new Blob([bytes], { type: mime }));
+    throw new Error("图片解密结果不是可识别的图片");
   }
 
   async function decryptCeb(url) {
     if (!url) return "";
+    if (state.imageResults.has(url)) return state.imageResults.get(url);
     if (state.imageCache.has(url)) return state.imageCache.get(url);
+
     const promise = (async () => {
-      const response = await binaryFetch(url, { cache: "force-cache", credentials: "omit" });
-      if (!response.ok) throw new Error(`图片 HTTP ${response.status}`);
+      const response = await binaryFetch(url, {
+        cache: "force-cache",
+        credentials: "omit",
+        mode: "cors"
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const contentType = response.headers.get("content-type") || "";
       const bytes = new Uint8Array(await response.arrayBuffer());
-      if (contentType.startsWith("image/")) {
-        return URL.createObjectURL(new Blob([bytes], { type: contentType }));
-      }
+
+      // 某些缩略图节点可能直接返回图片，即使 Content-Type 是 octet-stream。
+      const rawMime = contentType.startsWith("image/") ? contentType.split(";")[0] : detectImageMime(bytes);
+      if (rawMime) return URL.createObjectURL(new Blob([bytes], { type: rawMime }));
+
       const key = CryptoJS.enc.Utf8.parse(config.imageAesKey || "82758dd12749c777ef579f1839ceea6a");
       const decrypted = CryptoJS.AES.decrypt(bytesToBase64(bytes), key, {
         mode: CryptoJS.mode.ECB,
         padding: CryptoJS.pad.Pkcs7,
         blockSize: 16
       });
-      const result = CryptoJS.enc.Utf8.stringify(decrypted);
-      if (!result) throw new Error("图片 AES 解密为空");
-      if (/^data:image\//i.test(result)) return result;
-      if (/^[A-Za-z0-9+/=\s]+$/.test(result)) return `data:image/webp;base64,${result.replace(/\s+/g, "")}`;
-      throw new Error("图片解密结果格式未知");
-    })().catch(async (error) => {
-      if (/@webp-\d+(?:$|[?#])/.test(url)) {
-        const fallback = url.replace(/@webp-\d+(?=$|[?#])/, "");
-        if (fallback !== url) return decryptCeb(fallback);
-      }
+      return normalizeDecryptedImage(decrypted);
+    })().then((src) => {
+      state.imageResults.set(url, src);
+      state.imageFailures.delete(url);
+      return src;
+    }).catch((error) => {
+      state.imageFailures.set(url, error.message || String(error));
       throw error;
     });
+
     state.imageCache.set(url, promise);
     return promise;
   }
 
+  function preloadImage(src) {
+    return new Promise((resolve, reject) => {
+      const probe = new Image();
+      probe.onload = () => resolve(src);
+      probe.onerror = () => reject(new Error("浏览器无法解码图片"));
+      probe.src = src;
+    });
+  }
+
+  const imageQueue = [];
+  let activeImageJobs = 0;
+  const maxImageJobs = 4;
+
+  function runImageQueue() {
+    while (activeImageJobs < maxImageJobs && imageQueue.length) {
+      const job = imageQueue.shift();
+      activeImageJobs += 1;
+      Promise.resolve()
+        .then(job.task)
+        .then(job.resolve, job.reject)
+        .finally(() => {
+          activeImageJobs -= 1;
+          runImageQueue();
+        });
+    }
+  }
+
+  function enqueueImage(task) {
+    return new Promise((resolve, reject) => {
+      imageQueue.push({ task, resolve, reject });
+      runImageQueue();
+    });
+  }
+
   async function setEncryptedImage(img, path, size = 0) {
     if (!img || !path) return;
-    const resolved = resolveAsset(path, size);
-    if (!resolved) return;
-    try {
-      img.src = /\.(ceb|geb)(?:@[^/?#]+)?(?:$|[?#])/i.test(resolved)
-        ? await decryptCeb(resolved)
-        : resolved;
-    } catch (error) {
-      img.dataset.imageError = error.message;
+    const candidates = assetCandidates(path, size);
+    if (!candidates.length) return;
+
+    const requestKey = `${String(path)}|${size}|${candidates.join("|")}`;
+    if (img.dataset.imageRequest === requestKey && ["loading", "loaded", "failed"].includes(img.dataset.imageState)) return;
+    img.dataset.imageRequest = requestKey;
+    img.dataset.imageState = "loading";
+
+    // 卡片被主播放器重建时，直接复用已解出的图片，避免先显示占位图再闪一下。
+    for (const candidate of candidates) {
+      const cached = state.imageResults.get(candidate);
+      if (cached) {
+        img.onerror = null;
+        img.src = cached;
+        img.dataset.imageState = "loaded";
+        return;
+      }
     }
+
+    const errors = [];
+    await enqueueImage(async () => {
+      for (const candidate of candidates) {
+        if (img.dataset.imageRequest !== requestKey) return;
+        try {
+          const encrypted = /\.(ceb|geb)(?:@[^/?#]+)?(?:$|[?#])/i.test(candidate);
+          const src = encrypted ? await decryptCeb(candidate) : candidate;
+          await preloadImage(src);
+          if (img.dataset.imageRequest !== requestKey) return;
+          img.onerror = null;
+          img.src = src;
+          img.dataset.imageState = "loaded";
+          img.removeAttribute("data-image-error");
+          return;
+        } catch (error) {
+          errors.push(`${candidate}: ${error.message || error}`);
+        }
+      }
+      if (img.dataset.imageRequest === requestKey) {
+        img.dataset.imageState = "failed";
+        img.dataset.imageError = errors.join(" | ").slice(0, 1200);
+        img.title = "图片加载失败；请检查资源服务器 CORS 或图片解密响应";
+      }
+    });
   }
 
   async function requestApi(path, params = {}) {
@@ -213,6 +360,13 @@
     const decoded = await readJsonResponse(response);
     if (Number(decoded.errorCode ?? 0) !== 0) throw new Error(decoded.message || `errorCode ${decoded.errorCode}`);
     return decoded;
+  }
+
+  function captureResourceDomains(decoded) {
+    const payload = decoded?.data ?? decoded;
+    const values = payload?.resDomains || payload?.resourceDomains || payload?.resourceUrls || [];
+    const list = Array.isArray(values) ? values : [values];
+    state.resourceBases = unique(list.map(normalizeBase));
   }
 
   function captureVideos(decoded) {
@@ -232,7 +386,9 @@
     const response = await previousFetch(input, init);
     try {
       const url = new URL(typeof input === "string" ? input : input.url, location.href);
-      if (/\/videos\/short(?:$|[?])/i.test(url.pathname + url.search)) {
+      if (/\/sys\/dmCfg(?:$|[?])/i.test(url.pathname + url.search)) {
+        captureResourceDomains(await readJsonResponse(response));
+      } else if (/\/videos\/short(?:$|[?])/i.test(url.pathname + url.search)) {
         captureVideos(await readJsonResponse(response));
       }
     } catch {
@@ -366,30 +522,43 @@
     const cards = $$("#video-list .video-card");
     if (!cards.length) return;
     state.enhancing = true;
-    cards.forEach((card, index) => {
-      const item = state.videoItems[index];
-      if (!item) return;
-      const video = videoOf(item);
-      card.dataset.videoId = videoId(item);
-      const title = $(".video-meta strong", card);
-      if (title) title.textContent = video.name || video.title || title.textContent;
-      const duration = $(".video-cover span", card);
-      if (duration) duration.textContent = formatDuration(video.time || video.duration);
-      const cover = $(".video-cover img", card);
-      if (cover) setEncryptedImage(cover, video.verticalCoverURL || video.coverURL, 480);
-      if (!$(".rich-card-extra", card)) card.append(cardExtra(item));
-      if (!card.dataset.richBound) {
-        card.dataset.richBound = "1";
-        card.addEventListener("click", () => showVideoDetail(item));
-      }
-    });
-    state.enhancing = false;
+    try {
+      cards.forEach((card, index) => {
+        const item = state.videoItems[index];
+        if (!item) return;
+        const video = videoOf(item);
+        const id = videoId(item);
+        card.dataset.videoId = id;
+
+        const title = $(".video-meta strong", card);
+        if (title) title.textContent = video.name || video.title || title.textContent;
+        const duration = $(".video-cover span", card);
+        if (duration) duration.textContent = formatDuration(video.time || video.duration);
+        const cover = $(".video-cover img", card);
+        if (cover) setEncryptedImage(cover, video.verticalCoverURL || video.coverURL, 480);
+
+        if (card.dataset.richVideoId !== id) {
+          $(".rich-card-extra", card)?.remove();
+          card.append(cardExtra(item));
+          card.dataset.richVideoId = id;
+        }
+        if (!card.dataset.richBound) {
+          card.dataset.richBound = "1";
+          card.addEventListener("click", () => showVideoDetail(item));
+        }
+      });
+    } finally {
+      state.enhancing = false;
+    }
   }
 
   let enhanceTimer = 0;
   function scheduleEnhance() {
-    clearTimeout(enhanceTimer);
-    enhanceTimer = window.setTimeout(enhanceCards, 100);
+    if (enhanceTimer) cancelAnimationFrame(enhanceTimer);
+    enhanceTimer = requestAnimationFrame(() => {
+      enhanceTimer = 0;
+      enhanceCards();
+    });
   }
 
   function createProfileModal() {
@@ -538,56 +707,48 @@
     if (video.url) return { video, url: video.url };
     const id = videoId(item);
     if (!id) throw new Error("作品缺少视频 ID");
-    const result = await requestApi(`videos/${encodeURIComponent(id)}`, {
-      openCancel: true,
-      pid: config.pid || "PH"
-    });
-    const data = result.data || {};
-    if (!data.url) throw new Error("视频详情接口没有返回播放地址");
-    return { ...data, video: data.video || video };
-  }
-
-  function withPlaybackParams(url) {
-    try {
-      const parsed = new URL(url);
-      if (!parsed.searchParams.has("pid")) parsed.searchParams.set("pid", config.pid || "PH");
-      if (!parsed.searchParams.has("domain") && currentResource()) parsed.searchParams.set("domain", currentResource());
-      return parsed.href;
-    } catch {
-      return url;
+    const paths = [`shortVideos/${encodeURIComponent(id)}`, `newsVideos/${encodeURIComponent(id)}`];
+    let lastError;
+    for (const path of paths) {
+      try {
+        const result = await requestApi(path, { pid: config.pid || "PH" });
+        const payload = result.data || {};
+        const candidate = payload.video || payload;
+        const url = payload.url || candidate.url || candidate.playURL || candidate.playUrl;
+        if (url) return { video: { ...video, ...candidate }, url };
+      } catch (error) {
+        lastError = error;
+      }
     }
+    throw lastError || new Error("服务器没有返回播放地址");
   }
 
   function playThroughMain(item) {
-    const video = videoOf(item);
-    const url = withPlaybackParams(item.url || video.url || "");
-    if (!url) throw new Error("没有播放地址");
+    const id = videoId(item);
+    const mainCard = id ? $(`#video-list .video-card[data-video-id="${CSS.escape(id)}"]`) : null;
+    if (mainCard) {
+      mainCard.click();
+      mainCard.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+    const url = item.url || videoOf(item).url;
+    if (!url) return;
     const input = $("#manual-url");
-    const form = $("#manual-form");
-    input.value = url;
-    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    window.setTimeout(() => {
-      const title = $("#now-title");
-      if (title) title.textContent = video.name || video.title || "视频播放";
-      showVideoDetail({ ...item, video });
-      $("#video")?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 80);
+    if (input) input.value = url;
+    $("#manual-form")?.requestSubmit();
+    showVideoDetail(item);
   }
 
-  function setDownloadProgress(text, percent = null, active = true) {
+  function setDownloadProgress(text, percent = 0, visible = true) {
     const panel = ensurePlayerDetail();
     const wrap = $(".download-progress", panel);
-    const label = $(".download-progress-text", panel);
     const bar = $(".download-progress-bar span", panel);
-    wrap.hidden = !active;
+    const label = $(".download-progress-text", panel);
+    wrap.hidden = !visible;
     label.textContent = text;
-    if (percent == null) {
-      bar.style.width = "18%";
-      bar.classList.add("indeterminate");
-    } else {
-      bar.classList.remove("indeterminate");
-      bar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
-    }
+    const safe = Math.max(0, Math.min(100, Number(percent || 0)));
+    bar.style.width = `${safe}%`;
+    bar.classList.toggle("indeterminate", visible && safe <= 0);
   }
 
   function triggerBlobDownload(blob, filename) {
@@ -595,87 +756,124 @@
     const link = document.createElement("a");
     link.href = url;
     link.download = filename;
+    link.style.display = "none";
     document.body.append(link);
     link.click();
     link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  function withPlaybackParams(value) {
+    try {
+      const url = new URL(value);
+      if (config.pid && !url.searchParams.has("pid")) url.searchParams.set("pid", config.pid);
+      const resource = currentResource();
+      if (resource && !url.searchParams.has("domain")) url.searchParams.set("domain", resource);
+      return url.href;
+    } catch {
+      return value;
+    }
   }
 
   async function tryDirectMp4(item) {
     const video = videoOf(item);
-    const path = video.mp4PlayURL;
+    const path = video.mp4PlayURL || video.mp4PlayUrl || "";
     if (!path) return false;
-    const url = resolveAsset(path, 0);
-    if (!url) return false;
-    setDownloadProgress("正在尝试下载 MP4…", null, true);
-    const response = await binaryFetch(url, { cache: "no-store", credentials: "omit" });
-    if (!response.ok) throw new Error(`MP4 HTTP ${response.status}`);
-    const blob = await response.blob();
-    if (!blob.size) throw new Error("MP4 文件为空");
-    triggerBlobDownload(blob, `${sanitizeFilename(video.name)}.mp4`);
-    setDownloadProgress(`MP4 下载已开始 · ${(blob.size / 1024 / 1024).toFixed(1)} MB`, 100, true);
-    return true;
-  }
-
-  function parseAttributeList(text) {
-    const result = {};
-    const regex = /([A-Z0-9-]+)=("[^"]*"|[^,]*)/gi;
-    let match;
-    while ((match = regex.exec(text))) result[match[1].toUpperCase()] = match[2].replace(/^"|"$/g, "");
-    return result;
-  }
-
-  function parseIv(value, sequence) {
-    if (value) {
-      const hex = value.replace(/^0x/i, "").padStart(32, "0").slice(-32);
-      return Uint8Array.from(hex.match(/.{2}/g).map((pair) => parseInt(pair, 16)));
+    const candidates = /^https?:\/\//i.test(path)
+      ? [path]
+      : [currentResource(), currentApi()].filter(Boolean).map((base) => joinUrl(base, path));
+    for (const url of candidates) {
+      try {
+        setDownloadProgress("正在尝试 MP4 文件…", 0, true);
+        const response = await binaryFetch(url, { cache: "no-store", credentials: "omit" });
+        if (!response.ok) continue;
+        const type = response.headers.get("content-type") || "";
+        if (/text\/html|application\/json/i.test(type)) continue;
+        const blob = await response.blob();
+        if (!blob.size) continue;
+        triggerBlobDownload(blob, `${sanitizeFilename(video.name)}.mp4`);
+        setDownloadProgress(`MP4 下载已开始 · ${(blob.size / 1024 / 1024).toFixed(1)} MB`, 100, true);
+        return true;
+      } catch {
+        // 尝试下一条地址。
+      }
     }
-    const iv = new Uint8Array(16);
-    let n = BigInt(sequence);
-    for (let i = 15; i >= 0; i -= 1) {
-      iv[i] = Number(n & 255n);
-      n >>= 8n;
-    }
-    return iv;
+    return false;
   }
 
-  async function fetchPlaylist(url) {
-    const response = await binaryFetch(url, { headers: { m: "1" }, cache: "no-store", credentials: "omit" });
+  async function fetchPlaylistText(url) {
+    const response = await binaryFetch(withPlaybackParams(url), {
+      headers: { m: "1" },
+      cache: "no-store",
+      credentials: "omit"
+    });
     if (!response.ok) throw new Error(`m3u8 HTTP ${response.status}`);
     const bytes = new Uint8Array(await response.arrayBuffer());
-    let text;
     try {
-      text = pako.inflate(bytes, { to: "string" });
+      const text = pako.inflate(bytes, { to: "string" });
+      if (text.includes("#EXTM3U")) return text;
     } catch {
-      text = new TextDecoder().decode(bytes);
+      // 普通文本播放列表。
     }
-    if (!text.includes("#EXTM3U")) throw new Error("服务器返回的不是 HLS 播放列表");
+    const text = new TextDecoder().decode(bytes);
+    if (!text.includes("#EXTM3U")) throw new Error("服务器没有返回有效 m3u8");
     return text;
   }
 
-  async function resolveMediaPlaylist(url, depth = 0) {
-    const text = await fetchPlaylist(url);
-    if (!text.includes("#EXT-X-STREAM-INF") || depth >= 2) return { url, text };
+  function parseAttributeList(value) {
+    const result = {};
+    String(value || "").replace(/([A-Z0-9-]+)=((?:"[^"]*")|[^,]*)/gi, (_all, key, raw) => {
+      result[key.toUpperCase()] = String(raw || "").replace(/^"|"$/g, "");
+      return _all;
+    });
+    return result;
+  }
+
+  function parseMasterPlaylist(text, baseUrl) {
     const lines = text.split(/\r?\n/);
     const variants = [];
     for (let i = 0; i < lines.length; i += 1) {
-      if (!lines[i].startsWith("#EXT-X-STREAM-INF")) continue;
-      const attrs = parseAttributeList(lines[i].split(":").slice(1).join(":"));
+      if (!lines[i].startsWith("#EXT-X-STREAM-INF:")) continue;
+      const attrs = parseAttributeList(lines[i].slice(lines[i].indexOf(":") + 1));
       let next = i + 1;
       while (next < lines.length && (!lines[next].trim() || lines[next].startsWith("#"))) next += 1;
-      if (next < lines.length) variants.push({ url: new URL(lines[next].trim(), url).href, bandwidth: Number(attrs.BANDWIDTH || 0) });
+      if (next < lines.length) {
+        variants.push({
+          bandwidth: Number(attrs.BANDWIDTH || 0),
+          url: new URL(lines[next].trim(), baseUrl).href
+        });
+      }
     }
-    if (!variants.length) return { url, text };
-    variants.sort((a, b) => b.bandwidth - a.bandwidth);
-    return resolveMediaPlaylist(variants[0].url, depth + 1);
+    return variants.sort((a, b) => b.bandwidth - a.bandwidth);
+  }
+
+  async function resolveMediaPlaylist(url) {
+    let current = withPlaybackParams(url);
+    for (let depth = 0; depth < 3; depth += 1) {
+      const text = await fetchPlaylistText(current);
+      const variants = parseMasterPlaylist(text, current);
+      if (!variants.length) return { url: current, text };
+      current = variants[0].url;
+    }
+    throw new Error("HLS 主播放列表嵌套过深");
+  }
+
+  function parseIv(value, sequence) {
+    if (value && /^0x[0-9a-f]+$/i.test(value)) {
+      const hex = value.slice(2).padStart(32, "0").slice(-32);
+      return Uint8Array.from(hex.match(/.{2}/g).map((part) => parseInt(part, 16)));
+    }
+    const iv = new Uint8Array(16);
+    new DataView(iv.buffer).setUint32(12, sequence >>> 0);
+    return iv;
   }
 
   function parseMediaPlaylist(text, sourceUrl) {
     const lines = text.split(/\r?\n/);
-    let sequence = 0;
-    let key = { method: "NONE", iv: "" };
-    let initUrl = "";
     const segments = [];
+    let sequence = 0;
+    let key = null;
+    let initUrl = "";
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) continue;
@@ -759,8 +957,16 @@
   function observeList() {
     const list = $("#video-list");
     if (!list) return;
-    const observer = new MutationObserver(scheduleEnhance);
-    observer.observe(list, { childList: true, subtree: true });
+    const observer = new MutationObserver((mutations) => {
+      const hasNewCards = mutations.some((mutation) =>
+        [...mutation.addedNodes].some((node) =>
+          node.nodeType === 1 && (node.matches?.(".video-card") || node.querySelector?.(".video-card"))
+        )
+      );
+      if (hasNewCards) scheduleEnhance();
+    });
+    // 只观察列表直接子节点；增强层在卡片内部追加信息不会再次触发自己。
+    observer.observe(list, { childList: true, subtree: false });
   }
 
   function boot() {
