@@ -629,7 +629,7 @@
   async function loadFolderWorks(folderName) {
     if (state.worksCache.has(folderName)) return state.worksCache.get(folderName);
     const root = await getArchiveRoot(false);
-    if (!root) return [];
+    if (!root) return { directory: null, works: [] };
     try {
       const directory = await root.getDirectoryHandle(folderName);
       const raw = await readJson(directory, "works.json", []);
