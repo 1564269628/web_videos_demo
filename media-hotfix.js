@@ -2,6 +2,7 @@
   "use strict";
 
   const previousFetch = window.__nativeFetch || window.fetch.bind(window);
+  window.__downloadRawFetch = previousFetch;
 
   function toUrl(input) {
     try {
