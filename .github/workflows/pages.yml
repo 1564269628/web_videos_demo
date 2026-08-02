@@ -2,7 +2,9 @@ name: Deploy GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - feature/archive-center-v2-preview
   workflow_dispatch:
 
 permissions:
@@ -11,8 +13,8 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
-  cancel-in-progress: true
+  group: pages-combined-site
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -21,16 +23,37 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout stable main site
         uses: actions/checkout@v4
+        with:
+          ref: main
+          path: site
+
+      - name: Checkout archive center V2 preview
+        uses: actions/checkout@v4
+        with:
+          ref: feature/archive-center-v2-preview
+          path: preview-source
+
+      - name: Assemble stable root and branch preview
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf site/previews/archive-center-v2
+          mkdir -p site/previews/archive-center-v2
+          rsync -a \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            preview-source/ site/previews/archive-center-v2/
+          printf '%s\n' 'feature/archive-center-v2-preview' > site/previews/archive-center-v2/PREVIEW_BRANCH.txt
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
-      - name: Upload static site
+      - name: Upload combined Pages site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: site
 
       - name: Deploy
         id: deployment
