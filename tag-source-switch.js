@@ -67,8 +67,34 @@
     location.href = url.href;
   }
 
+  function ensureUi() {
+    let select = document.querySelector("#tag-select");
+    if (select) return select;
+    const toolbar = document.querySelector(".library-panel .toolbar");
+    if (!toolbar) return null;
+
+    const label = document.createElement("label");
+    label.className = "page-label";
+    label.htmlFor = "tag-select";
+    label.textContent = "标签来源";
+
+    select = document.createElement("select");
+    select.id = "tag-select";
+    select.className = "category-select";
+    select.setAttribute("aria-label", "标签视频来源");
+
+    const source = document.createElement("span");
+    source.id = "tag-source-label";
+    source.className = "page-label";
+
+    toolbar.insertBefore(label, toolbar.firstChild);
+    toolbar.insertBefore(select, label.nextSibling);
+    toolbar.insertBefore(source, select.nextSibling);
+    return select;
+  }
+
   function installUi() {
-    const select = document.querySelector("#tag-select");
+    const select = ensureUi();
     if (!select || select.dataset.tagSwitchReady === "1") return;
     select.dataset.tagSwitchReady = "1";
 
