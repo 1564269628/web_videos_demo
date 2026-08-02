@@ -17,6 +17,18 @@
 9. 统一加入多视频并发下载队列，单视频内部并发下载 HLS 分片
 10. 已下载的 MP4/TS、封面、标题、标签和作者信息可在归档中心内浏览与播放
 
+## 短视频分页
+
+APK 1.2.75 的短视频组件使用：
+
+- 初始 `page = 1`
+- 固定 `pageSize = 10`
+- 请求参数包含 `pid`、`page`、`pageSize`、`categorieId`
+- 请求成功后才执行 `page += 1`
+- 下拉刷新时清空列表并将 `page` 重置为 1
+
+预览版默认按该规则请求。首页作者扫描额外提供 20、50、100 条每页的实验选项，但默认仍为 APK 原版的 10 条。分页日志会输出每次实际请求的页码、每页数量、分类 ID 和完整 URL。
+
 仍然不再使用：
 
 - 单作者文件夹选择器
@@ -31,4 +43,5 @@
 - `archive-all-authors.js`
 - `archive-all-authors.css`
 - `archive-homepage-scanner.js`
+- `short-pagination-fix.js`
 - `index.html`
