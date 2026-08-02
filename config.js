@@ -60,4 +60,4 @@ window.VIDEO_APP_CONFIG = {
 
 // 页面解析阶段同步加载：先切换标签接口，再适配“只有摘要、没有播放 URL”的标签响应。
 document.write('<script src="./tag-source-switch.js?v=20260802-28"><\/script>');
-document.write('<script src="./tag-response-adapter.js?v=20260802-29"><\/script>');
+document.write('<script src="./tag-response-adapter.js?v=20260802-30"><\/script>');
