@@ -49,6 +49,10 @@
     return Boolean(url && /\.(?:ceb|geb)(?:@[^/?#]+)?(?:$|[?#])/i.test(url.href));
   }
 
+  function isDirectMp4(url) {
+    return Boolean(url && /\.mp4(?:$|[?#])/i.test(url.href));
+  }
+
   function canonicalImagePath(url) {
     let pathname = String(url.pathname || "/").replace(/\/{2,}/g, "/");
     pathname = pathname.replace(/^\/api\/v1(?=\/web\/img\/)/i, "");
@@ -100,6 +104,13 @@
   async function routedFetch(input, init = {}) {
     const url = inputUrl(input);
     const method = String(init.method || (typeof input !== "string" && input.method) || "GET").toUpperCase();
+
+    // 直接 MP4 地址长期返回无效内容。这里在真正发起网络请求前就拒绝，
+    // 让下载流程立即进入 HLS 分片下载，不再浪费时间和流量。
+    if (method === "GET" && isDirectMp4(url)) {
+      throw new DOMException("Direct MP4 fallback disabled", "NotSupportedError");
+    }
+
     if (method !== "GET" || !isEncryptedImage(url)) return baseFetch(input, init);
 
     const key = canonicalImagePath(url);
@@ -126,6 +137,27 @@
     const response = await request;
     return response.clone();
   }
+
+  function suppressMp4Status(root = document) {
+    const labels = [];
+    if (root instanceof Element && root.matches(".download-progress-text")) labels.push(root);
+    root.querySelectorAll?.(".download-progress-text").forEach((node) => labels.push(node));
+    for (const label of labels) {
+      if (/MP4|正在尝试直接/i.test(label.textContent || "")) {
+        label.textContent = "正在读取 HLS 播放列表…";
+      }
+    }
+  }
+
+  const statusObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      suppressMp4Status(mutation.target instanceof Element ? mutation.target : mutation.target.parentElement);
+      mutation.addedNodes.forEach((node) => {
+        if (node.nodeType === 1) suppressMp4Status(node);
+      });
+    }
+  });
+  statusObserver.observe(document.documentElement, { subtree: true, childList: true, characterData: true });
 
   window.__nativeFetch = routedFetch;
   window.__assetRouteFetch = routedFetch;
