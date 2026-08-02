@@ -7,8 +7,8 @@
   <meta name="color-scheme" content="dark">
   <meta name="referrer" content="no-referrer">
   <title>好妻网 · Web 视频播放器</title>
-  <link rel="stylesheet" href="./styles.css?v=20260802-1">
-  <link rel="stylesheet" href="./enhancements.css?v=20260802-1">
+  <link rel="stylesheet" href="./styles.css?v=20260802-2">
+  <link rel="stylesheet" href="./enhancements.css?v=20260802-2">
 </head>
 <body>
   <div class="app-shell">
@@ -18,7 +18,7 @@
         <h1 id="app-title">好妻网 · Web 视频播放器</h1>
         <p class="subtitle">打开即自动测速、游客登录、解密接口并加载视频</p>
       </div>
-      <div id="connection-badge" class="badge badge-busy">正在初始化…</div>
+      <div id="connection-badge" class="badge badge-busy">正在连接服务器</div>
     </header>
 
     <main class="main-grid">
@@ -37,13 +37,13 @@
             <h2 id="now-title">尚未选择视频</h2>
             <p id="now-url" class="mono muted">—</p>
           </div>
-          <button id="copy-url" class="ghost-button" type="button" disabled>复制地址</button>
+          <button id="copy-url" type="button" class="ghost-button" disabled>复制地址</button>
         </div>
 
         <form id="manual-form" class="manual-form">
           <label for="manual-url">手动播放地址</label>
           <div class="input-row">
-            <input id="manual-url" type="url" placeholder="https://example.com/video.m3u8" autocomplete="off" required>
+            <input id="manual-url" type="url" placeholder="https://example.com/video.m3u8" autocomplete="off">
             <button type="submit">播放</button>
           </div>
         </form>
@@ -56,14 +56,13 @@
               <p class="label">实时状态</p>
               <h2>服务器连接</h2>
             </div>
-            <button id="restart-button" type="button">重新连接</button>
+            <button id="restart-button" type="button" class="ghost-button">重新连接</button>
           </div>
-
           <dl class="status-list">
             <div><dt>当前 API</dt><dd id="active-api">—</dd></div>
             <div><dt>API 延迟</dt><dd id="active-latency">—</dd></div>
             <div><dt>资源线路</dt><dd id="active-resource">—</dd></div>
-            <div><dt>登录状态</dt><dd id="auth-status">正在登录…</dd></div>
+            <div><dt>登录状态</dt><dd id="auth-status">准备登录</dd></div>
             <div><dt>视频数量</dt><dd id="video-count">0</dd></div>
           </dl>
         </section>
@@ -71,11 +70,9 @@
         <section class="panel auth-panel">
           <p class="label">自动游客登录</p>
           <h2>Token</h2>
-          <p class="hint">留空时网页会按 APK 逻辑调用 users/signin 自动申请游客 Token。也可以粘贴已有账号 Token 覆盖游客登录。</p>
-          <div class="input-row">
-            <input id="token-input" type="password" placeholder="留空则自动游客登录" autocomplete="off">
-            <button id="save-token" type="button">保存并刷新</button>
-          </div>
+          <p class="hint">留空时网页会按 APK 逻辑调用 <code>users/signin</code> 自动申请游客 Token。也可以粘贴已有账号 Token 覆盖游客登录。</p>
+          <textarea id="token-input" rows="5" spellcheck="false" placeholder="自动登录后会保存在当前浏览器"></textarea>
+          <button id="save-token" type="button">保存并刷新</button>
         </section>
       </aside>
     </main>
@@ -87,64 +84,54 @@
           <h2>视频列表</h2>
         </div>
         <div class="toolbar">
-          <label class="category-control">
-            <span>分类</span>
-            <select id="category-select" disabled><option>加载中…</option></select>
-          </label>
-          <button id="previous-page" class="ghost-button" type="button">上一页</button>
+          <label for="category-select" class="page-label">分类</label>
+          <select id="category-select" class="category-select" aria-label="短视频分类">
+            <option value="">自动获取分类</option>
+          </select>
+          <button id="previous-page" type="button" class="ghost-button">上一页</button>
           <span id="page-label" class="page-label">第 1 页</span>
-          <button id="next-page" class="ghost-button" type="button">下一页</button>
+          <button id="next-page" type="button" class="ghost-button">下一页</button>
           <button id="reload-catalog" type="button">刷新</button>
         </div>
       </div>
-      <div id="video-list" class="video-list" aria-live="polite">
-        <div class="empty-list">等待服务器返回数据…</div>
+      <div id="video-list" class="video-list">
+        <div class="empty-list">正在初始化服务器线路…</div>
       </div>
     </section>
 
     <section class="data-grid">
       <article class="panel data-panel">
         <div class="section-heading">
-          <div>
-            <p class="label">sys/dmCfg</p>
-            <h2>域名配置数据</h2>
-          </div>
-          <button class="ghost-button copy-json" data-target="domain-json" type="button">复制 JSON</button>
+          <div><p class="label">sys/dmCfg</p><h2>域名配置数据</h2></div>
+          <button type="button" class="ghost-button copy-json" data-target="domain-json">复制 JSON</button>
         </div>
-        <pre id="domain-json">等待请求…</pre>
+        <pre id="domain-json">等待服务器返回…</pre>
       </article>
 
       <article class="panel data-panel">
         <div class="section-heading">
-          <div>
-            <p class="label">videos/short</p>
-            <h2>视频接口数据与分类回退</h2>
-          </div>
-          <button class="ghost-button copy-json" data-target="catalog-json" type="button">复制 JSON</button>
+          <div><p class="label">videos/short</p><h2>视频接口数据与分类回退</h2></div>
+          <button type="button" class="ghost-button copy-json" data-target="catalog-json">复制 JSON</button>
         </div>
-        <pre id="catalog-json">等待请求…</pre>
+        <pre id="catalog-json">等待服务器返回…</pre>
+      </article>
+    </section>
+
+    <section class="data-grid">
+      <article class="panel data-panel">
+        <div class="section-heading">
+          <div><p class="label">videos/shortCate</p><h2>短视频分类数据</h2></div>
+          <button type="button" class="ghost-button copy-json" data-target="category-json">复制 JSON</button>
+        </div>
+        <pre id="category-json">等待分类接口返回…</pre>
       </article>
 
       <article class="panel data-panel">
         <div class="section-heading">
-          <div>
-            <p class="label">videos/shortCate</p>
-            <h2>短视频分类数据</h2>
-          </div>
-          <button class="ghost-button copy-json" data-target="category-json" type="button">复制 JSON</button>
+          <div><p class="label">NETWORK DEBUG</p><h2>完整接口请求与响应</h2></div>
+          <button type="button" class="ghost-button copy-json" data-target="request-json">复制 JSON</button>
         </div>
-        <pre id="category-json">等待请求…</pre>
-      </article>
-
-      <article class="panel data-panel">
-        <div class="section-heading">
-          <div>
-            <p class="label">NETWORK DEBUG</p>
-            <h2>完整接口请求与响应</h2>
-          </div>
-          <button class="ghost-button copy-json" data-target="request-json" type="button">复制 JSON</button>
-        </div>
-        <pre id="request-json">等待请求…</pre>
+        <pre id="request-json">尚未发送接口请求…</pre>
       </article>
     </section>
 
@@ -161,10 +148,10 @@
   <script src="https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js" crossorigin="anonymous"></script>
-  <script src="./config.js?v=20260802-1"></script>
+  <script src="./config.js?v=20260802-2"></script>
   <script>window.__nativeFetch = window.fetch.bind(window);</script>
-  <script src="./diagnostics.js?v=20260802-1"></script>
-  <script src="./enhancements.js?v=20260802-1"></script>
-  <script src="./app.js?v=20260802-1"></script>
+  <script src="./diagnostics.js?v=20260802-2"></script>
+  <script src="./enhancements.js?v=20260802-2"></script>
+  <script src="./app.js?v=20260802-2"></script>
 </body>
 </html>
