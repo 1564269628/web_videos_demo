@@ -1,9 +1,16 @@
 (() => {
   "use strict";
 
-  const sourceUrl = "./app.js?v=20260802-4";
-  const needle = `if (elements.playerEmpty) elements.playerEmpty.hidden = true;\nrenderVideos();\nsetBadge("正在加载视频…", "busy");`;
-  const replacement = `if (elements.playerEmpty) elements.playerEmpty.hidden = true;\nif (elements.videoList) {\n[...elements.videoList.querySelectorAll(".video-card")].forEach((card, index) => {\ncard.classList.toggle("active", state.videos[index]?.id === video.id);\n});\n}\nsetBadge("正在加载视频…", "busy");`;
+  const sourceUrl = "./app.js?v=20260802-8";
+  const renderNeedle = `if (elements.playerEmpty) elements.playerEmpty.hidden = true;\nrenderVideos();\nsetBadge("正在加载视频…", "busy");`;
+  const renderReplacement = `if (elements.playerEmpty) elements.playerEmpty.hidden = true;\nif (elements.videoList) {\n[...elements.videoList.querySelectorAll(".video-card")].forEach((card, index) => {\ncard.classList.toggle("active", state.videos[index]?.id === video.id);\n});\n}\nsetBadge("正在加载视频…", "busy");`;
+
+  const rewriteMarker = "function rewritePlaylist(playlist, sourceUrl) {";
+  const rewriteHelper = `function normalizeMediaUrl(value) {\nconst input = String(value || "");\nif (!/^https?:\\/\\//i.test(input)) return input;\ntry {\nconst url = new URL(input);\nurl.pathname = \`/\${url.pathname.replace(/^\\/+/, "").replace(/\\/{2,}/g, "/")}\`;\nreturn url.href;\n} catch {\nreturn input.replace(/^(https?:\\/\\/[^/]+)\\/{2,}/i, "$1/");\n}\n}\n`;
+  const quotedUriNeedle = 'try { return `URI="${new URL(uri, sourceUrl).href}"`; }';
+  const quotedUriReplacement = 'try { return `URI="${normalizeMediaUrl(new URL(uri, sourceUrl).href)}"`; }';
+  const mediaLineNeedle = "try { return new URL(trimmed, sourceUrl).href; }";
+  const mediaLineReplacement = "try { return normalizeMediaUrl(new URL(trimmed, sourceUrl).href); }";
 
   fetch(sourceUrl, { cache: "no-store" })
     .then((response) => {
@@ -11,11 +18,33 @@
       return response.text();
     })
     .then((source) => {
-      const first = source.indexOf(needle);
-      const last = source.lastIndexOf(needle);
+      const first = source.indexOf(renderNeedle);
+      const last = source.lastIndexOf(renderNeedle);
       if (first < 0 || first !== last) throw new Error("无法唯一定位视频列表重建代码");
 
-      const patched = source.replace(needle, replacement);
+      let patched = source.replace(renderNeedle, renderReplacement);
+
+      const rewriteFirst = patched.indexOf(rewriteMarker);
+      const rewriteLast = patched.lastIndexOf(rewriteMarker);
+      if (rewriteFirst < 0 || rewriteFirst !== rewriteLast) {
+        throw new Error("无法唯一定位播放列表重写函数");
+      }
+      patched = patched.replace(rewriteMarker, `${rewriteHelper}${rewriteMarker}`);
+
+      const quotedFirst = patched.indexOf(quotedUriNeedle);
+      const quotedLast = patched.lastIndexOf(quotedUriNeedle);
+      if (quotedFirst < 0 || quotedFirst !== quotedLast) {
+        throw new Error("无法唯一定位 M3U8 URI 属性处理代码");
+      }
+      patched = patched.replace(quotedUriNeedle, quotedUriReplacement);
+
+      const mediaFirst = patched.indexOf(mediaLineNeedle);
+      const mediaLast = patched.lastIndexOf(mediaLineNeedle);
+      if (mediaFirst < 0 || mediaFirst !== mediaLast) {
+        throw new Error("无法唯一定位 M3U8 分片地址处理代码");
+      }
+      patched = patched.replace(mediaLineNeedle, mediaLineReplacement);
+
       const blobUrl = URL.createObjectURL(new Blob([patched], { type: "text/javascript" }));
       const script = document.createElement("script");
       script.src = blobUrl;
