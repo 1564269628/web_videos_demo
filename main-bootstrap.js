@@ -2,7 +2,7 @@
   "use strict";
 
   const config = window.VIDEO_APP_CONFIG || {};
-  const rawFetch = window.__lineSelectorRawFetch || window.fetch.bind(window);
+  const rawFetch = window.__nativeFetch || window.fetch.bind(window);
   const STORAGE_KEY = "hq-last-good-api";
   const MANUAL_KEY = "hq-manual-api";
   const PROBE_TIMEOUT_MS = 3200;
@@ -61,10 +61,7 @@
     if (payload && Number(payload.errorCode ?? 0) !== 0) {
       throw new Error(payload.message || `errorCode ${payload.errorCode}`);
     }
-    return {
-      base,
-      elapsed: Math.round(performance.now() - started)
-    };
+    return { base, elapsed: Math.round(performance.now() - started) };
   }
 
   async function firstWorking(candidates) {
@@ -88,11 +85,7 @@
 
     const manual = normalizeBase(localStorage.getItem(MANUAL_KEY));
     const lastGood = normalizeBase(localStorage.getItem(STORAGE_KEY));
-    const ordered = unique([
-      manual,
-      lastGood,
-      ...allCandidates
-    ]);
+    const ordered = unique([manual, lastGood, ...allCandidates]);
 
     setBadge("正在快速选择 API…", "busy");
 
@@ -110,11 +103,8 @@
     }
 
     config.apiCandidates = [winner.base];
-    // 服务器下发的其他 API 继续交给右侧选线面板后台测速，
-    // 不再阻塞页面启动流程。
     config.useDynamicApiDomains = false;
-
-    await import(`./app.js?v=20260802-13`);
+    await import(`./app.js?v=20260802-14`);
   }
 
   start().catch((error) => {
