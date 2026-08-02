@@ -57,3 +57,6 @@ window.VIDEO_APP_CONFIG = {
     captchaKey: "hq-video-captcha-key"
   }
 };
+
+// 当前脚本由页面解析器同步加载；在主程序启动前插入标签来源切换器。
+document.write('<script src="./tag-source-switch.js?v=20260802-28"><\/script>');
