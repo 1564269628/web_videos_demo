@@ -62,3 +62,4 @@ window.VIDEO_APP_CONFIG = {
 document.write('<script src="./tag-source-switch.js?v=20260802-28"><\/script>');
 document.write('<script src="./tag-response-adapter.js?v=20260802-30"><\/script>');
 document.write('<script src="./tag-author-tools.js?v=20260802-32"><\/script>');
+document.write('<script src="./tag-author-archive-fix.js?v=20260803-33"><\/script>');
