@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "20260802-26-pagination";
+  const VERSION = "20260802-27-pagination-cors-safe";
   const originalFetch = window.__nativeFetch || window.fetch.bind(window);
   let pendingUiPage = null;
   let pendingUntil = 0;
@@ -22,7 +22,7 @@
 
   function selectedCategory() {
     const value = document.querySelector("#category-select")?.value;
-    return value === undefined || value === null || value === "" ? "0" : String(value);
+    return value === undefined || value === null || value === "" ? "" : String(value);
   }
 
   function requestedScannerPageSize() {
@@ -33,8 +33,11 @@
   function normalizeRequest(input, init) {
     const raw = input instanceof Request ? input.url : String(input);
     let url;
-    try { url = new URL(raw, location.href); }
-    catch { return { input, init, meta: null }; }
+    try {
+      url = new URL(raw, location.href);
+    } catch {
+      return { input, init, meta: null };
+    }
     if (!isShortCatalog(url)) return { input, init, meta: null };
 
     let page = Math.max(1, Number.parseInt(url.searchParams.get("page") || "1", 10) || 1);
@@ -51,24 +54,25 @@
 
     url.searchParams.set("page", String(page));
     url.searchParams.set("pageSize", String(pageSize));
-    url.searchParams.set("categorieId", category || "0");
+    if (category) url.searchParams.set("categorieId", category);
+    else url.searchParams.delete("categorieId");
     url.searchParams.set("pid", url.searchParams.get("pid") || "PH");
 
-    const nextInit = {
-      ...(init || {}),
-      cache: "no-store",
-      headers: new Headers(init?.headers || (input instanceof Request ? input.headers : undefined))
-    };
-    nextInit.headers.set("cache-control", "no-cache");
-    nextInit.headers.set("pragma", "no-cache");
+    // 只改查询参数，绝不添加 Cache-Control、Pragma 或其他请求头。
+    // 原请求的 headers、signal、credentials、mode 等全部原样保留，避免破坏 CORS。
+    if (input instanceof Request) {
+      const source = init ? new Request(input, init) : input;
+      return {
+        input: new Request(url.href, source),
+        init: undefined,
+        meta: { page, pageSize, categorieId: category, url: url.href }
+      };
+    }
 
-    const nextInput = input instanceof Request
-      ? new Request(url.href, { ...input, ...nextInit })
-      : url.href;
     return {
-      input: nextInput,
-      init: input instanceof Request ? undefined : nextInit,
-      meta: { page, pageSize, categorieId: category || "0", url: url.href }
+      input: url.href,
+      init,
+      meta: { page, pageSize, categorieId: category, url: url.href }
     };
   }
 
@@ -105,7 +109,7 @@
     if (!next && !previous && !reload) return;
     const match = (document.querySelector("#page-label")?.textContent || "").match(/(\d+)/);
     const current = Math.max(1, Number(match?.[1] || 1));
-    pendingUiPage = reload ? 1 : next ? current + 1 : Math.max(1, current - 1);
+    pendingUiPage = reload ? current : next ? current + 1 : Math.max(1, current - 1);
     pendingUntil = Date.now() + 5000;
     log("界面分页按钮已指定下一次请求页码", { current, requested: pendingUiPage });
   }, true);
@@ -137,5 +141,9 @@
       pendingUntil = Date.now() + 10000;
     }
   };
-  log("短视频分页修复已启用", { apkPageSize: 10 });
+
+  log("短视频分页修复已启用（CORS 安全版）", {
+    apkPageSize: 10,
+    addedRequestHeaders: []
+  });
 })();
