@@ -30,6 +30,10 @@
     output.textContent = `${line}${old}`.slice(0, 80000);
   }
 
+  function assignedSrc(img) {
+    return String(img.getAttribute("src") || img.currentSrc || img.src || "");
+  }
+
   function isPlaceholder(src) {
     return /^data:image\/svg\+xml/i.test(String(src || ""));
   }
@@ -164,7 +168,7 @@
   }
 
   async function buildStableSource(img, info) {
-    const current = String(img.currentSrc || img.src || "");
+    const current = assignedSrc(img);
     if (/^data:image\//i.test(current) && !isPlaceholder(current)) return current;
 
     if (/^blob:/i.test(current)) {
@@ -202,6 +206,10 @@
           stabilized += 1;
           return src;
         })
+        .catch((error) => {
+          stableCache.delete(info.key);
+          throw error;
+        })
         .finally(() => pending.delete(info.key));
       pending.set(info.key, task);
       stableCache.set(info.key, task);
@@ -216,20 +224,22 @@
 
     const cached = stableCache.get(info.key);
     if (typeof cached === "string") {
-      const current = String(img.currentSrc || img.src || "");
-      if (current !== cached || img.naturalWidth === 0) {
+      const current = assignedSrc(img);
+      if (current !== cached) {
         img.onerror = null;
-        img.src = cached;
-        img.dataset.imageState = "loaded";
         img.dataset.imageStable = "1";
+        img.dataset.imageState = "loaded";
+        img.src = cached;
         restored += 1;
+      } else {
+        img.dataset.imageStable = "1";
       }
       return;
     }
 
     if (img.dataset.imageStable === "1" && img.naturalWidth > 0) return;
 
-    const current = String(img.currentSrc || img.src || "");
+    const current = assignedSrc(img);
     const shouldStabilize =
       /^blob:/i.test(current) ||
       (/^data:image\//i.test(current) && !isPlaceholder(current)) ||
@@ -247,10 +257,10 @@
       const src = await stableSource(img, info);
       if (!img.isConnected || img.dataset.imageRequest !== info.key) return;
       img.onerror = null;
-      img.src = src;
       img.dataset.imageState = "loaded";
       img.dataset.imageStable = "1";
       img.removeAttribute("data-image-error");
+      if (assignedSrc(img) !== src) img.src = src;
       restored += 1;
       if (reason !== "scan") log("已恢复重建后的图片", { path: info.path, reason });
     } catch (error) {
