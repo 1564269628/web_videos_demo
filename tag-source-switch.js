@@ -38,9 +38,9 @@
     config.videoCatalogPath = `tag/${encodeURIComponent(activeTagId)}/videos`;
     config.defaultVideoParams = {
       page: 1,
-      pageSize: 10,
+      pageSize: 15,
       compositeSort: 1,
-      timeType: 1,
+      timeType: 2,
       sourceType: "sourceType"
     };
 
