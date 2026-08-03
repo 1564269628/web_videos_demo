@@ -1,5 +1,5 @@
 from .common import *
-from .engine import Downloader
+from .engine_v2 import Downloader
 def logger(root,verbose):
     l=logging.getLogger("dl"); l.setLevel(logging.DEBUG); l.handlers.clear(); fm=logging.Formatter("%(asctime)s.%(msecs)03d [%(levelname)s] [%(threadName)s] %(message)s","%Y-%m-%d %H:%M:%S")
     c=logging.StreamHandler(sys.stdout); c.setLevel(logging.DEBUG if verbose else logging.INFO); c.setFormatter(fm); l.addHandler(c)
