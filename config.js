@@ -58,9 +58,9 @@ window.VIDEO_APP_CONFIG = {
   }
 };
 
-// 页面解析阶段同步加载标签接口、标签作者辅助功能和已下载视频封面补齐器。
+// 页面解析阶段同步加载标签功能和归档运行时优化器。
 document.write('<script src="./tag-source-switch.js?v=20260802-28"><\/script>');
 document.write('<script src="./tag-response-adapter.js?v=20260802-30"><\/script>');
 document.write('<script src="./tag-author-tools.js?v=20260802-32"><\/script>');
 document.write('<script src="./tag-author-archive-fix.js?v=20260803-33"><\/script>');
-document.write('<script src="./archive-cover-backfill.js?v=20260803-34"><\/script>');
+document.write('<script src="./archive-runtime-optimizer.js?v=20260803-35"><\/script>');
