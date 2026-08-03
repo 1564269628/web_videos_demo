@@ -1,6 +1,7 @@
 (() => {
   "use strict";
 
+  const VERSION = "20260803-37-signed-segment-diagnostics";
   const previousFetch = window.__nativeFetch || window.fetch.bind(window);
   window.__downloadRawFetch = previousFetch;
 
@@ -75,12 +76,11 @@
   }
 
   async function invalidSegmentResponse(response) {
-    if (!response.ok) return `HTTP ${response.status}`;
     const type = (response.headers.get("content-type") || "").toLowerCase();
     const bytes = new Uint8Array(await response.clone().arrayBuffer());
-    if (!bytes.length) return "空响应";
+    if (!bytes.length) return `空响应（HTTP ${response.status}）`;
 
-    const prefix = new TextDecoder().decode(bytes.subarray(0, Math.min(bytes.length, 512))).trim().toLowerCase();
+    const prefix = new TextDecoder().decode(bytes.subarray(0, Math.min(bytes.length, 768))).trim().toLowerCase();
     if (
       type.includes("text/html") ||
       type.includes("application/json") ||
@@ -88,8 +88,9 @@
       prefix.startsWith("<html") ||
       /<h1[^>]*>\s*404\s*<\/h1>/.test(prefix)
     ) {
-      return "服务器返回 HTML 404 页面";
+      return `服务器返回 HTML/JSON 错误页（HTTP ${response.status || 0}，${type || "未知类型"}）`;
     }
+    if (!response.ok) return `HTTP ${response.status}`;
     return "";
   }
 
@@ -101,7 +102,15 @@
     const errors = [];
     for (const candidate of candidatesFor(original)) {
       try {
-        const response = await previousFetch(candidate.href, init);
+        const nextInit = {
+          ...init,
+          referrerPolicy: "no-referrer",
+          headers: {
+            accept: "*/*",
+            ...(init.headers || {})
+          }
+        };
+        const response = await previousFetch(candidate.href, nextInit);
         const invalid = await invalidSegmentResponse(response);
         if (!invalid) return response;
         errors.push(`${candidate.href}：${invalid}`);
@@ -110,7 +119,12 @@
       }
     }
 
-    const detail = errors[0] || original.href;
-    throw new Error(`视频分片不可用；已修正双斜杠并尝试备用资源线路。${detail}`);
+    const error = new Error(`视频分片不可用；可能是签名过期、CDN 软 404 或资源线路失效。${errors.join("；") || original.href}`);
+    error.code = "MEDIA_SEGMENT_UNAVAILABLE";
+    error.segmentUrl = original.href;
+    error.attempts = errors;
+    throw error;
   };
+
+  console.log(`[MEDIA HOTFIX ${VERSION}] 分片诊断已加载`);
 })();
