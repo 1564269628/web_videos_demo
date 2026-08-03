@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const LOADER_VERSION = "20260803-36-turbo-loader";
+  const LOADER_VERSION = "20260803-37-signed-url-retry";
   const PINNED_CORE_URLS = [
     "https://cdn.jsdelivr.net/gh/1564269628/web_videos_demo@a2979e3a54c4100e2180cf1b44a86c7b00d307ce/archive-all-authors.js",
     "https://raw.githubusercontent.com/1564269628/web_videos_demo/a2979e3a54c4100e2180cf1b44a86c7b00d307ce/archive-all-authors.js"
@@ -45,7 +45,7 @@
     code = replaceRequired(
       code,
       'const VERSION = "20260802-24-all-authors";',
-      'const VERSION = "20260803-36-all-authors-turbo";',
+      'const VERSION = "20260803-37-all-authors-turbo-retry";',
       "版本号"
     );
 
@@ -117,6 +117,13 @@
       "下载完成后直接保存封面"
     );
 
+    code = replaceRequired(
+      code,
+      "      const result = await downloadPrepared(item, prepared, task);",
+      "      let result;\n      try {\n        result = await downloadPrepared(item, prepared, task);\n      } catch (firstError) {\n        const firstMessage = firstError?.message || String(firstError);\n        const retryable = /MEDIA_SEGMENT_UNAVAILABLE|视频分片不可用|HTML(?:\\/JSON)?(?: 404| 错误页)|HTTP 40[134]|signature|expired|签名过期/i.test(firstMessage);\n        if (!retryable || state.controller?.signal.aborted || state.paused) throw firstError;\n\n        task.phase = \"刷新过期播放地址\";\n        task.doneSegments = 0;\n        task.bytes = 0;\n        task.speed = 0;\n        task.speedAt = performance.now();\n        task.speedBytes = 0;\n        task.preferredOrigin = \"\";\n        task.disabledOrigins = new Set();\n        renderTasks();\n        log(\"分片地址失效，正在获取新的签名并重试整条视频\", {\n          author: item.author.folderName,\n          id: item.id,\n          title: item.title,\n          oldPlaylistUrl: prepared.url,\n          error: firstMessage\n        }, \"warn\");\n\n        try {\n          prepared = await preparePlaylist(item, true);\n          item.segmentCount = prepared.parsed.segments.length;\n          item.playlistUrl = prepared.url;\n          task.totalSegments = item.segmentCount;\n          task.phase = \"使用新签名重新下载\";\n          renderTasks();\n          result = await downloadPrepared(item, prepared, task);\n          log(\"刷新签名后重试成功\", {\n            author: item.author.folderName,\n            id: item.id,\n            title: item.title,\n            newPlaylistUrl: prepared.url,\n            segments: result.segmentCount\n          });\n        } catch (retryError) {\n          throw new Error(`旧分片地址失效；刷新视频播放地址后仍下载失败：${retryError?.message || retryError}`);\n        }\n      }",
+      "分片签名失效后刷新播放地址重试"
+    );
+
     code += `\n//# sourceURL=archive-all-authors-turbo-core.js?v=${LOADER_VERSION}\n`;
     return code;
   }
@@ -143,7 +150,8 @@
         videoConcurrencyHardLimit: null,
         segmentConcurrencyHardLimit: null,
         automaticDirectoryRescan: false,
-        directCoverSave: true
+        directCoverSave: true,
+        expiredSignedUrlRetry: true
       });
     })();
     return window.__ALL_AUTHORS_TURBO_LOADING__;
