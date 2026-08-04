@@ -1,6 +1,6 @@
 # 本地短视频播放器
 
-这是一个只读取本地归档目录的播放器。它不会请求原视频 API，也不会修改归档目录。
+这是一个只读取本地归档目录的播放器，不请求原视频 API，也不会修改归档目录。
 
 ## 运行
 
@@ -10,17 +10,19 @@
 F:\tools\short_videos
 ```
 
-代码目录可以放在任意位置，保留项目内文件相对位置后直接运行：
+代码可以放在任意目录，直接运行：
 
 ```powershell
 python local_archive_player.py
 ```
 
-程序会自动打开本机页面：
+程序默认：
 
-```text
-http://127.0.0.1:8765/
-```
+- 同时监听全部 IPv4 和 IPv6 地址；
+- 最多扫描 50 个已下载视频，达到上限后立即停止；
+- 不自动打开浏览器；
+- 电脑手动访问 `http://127.0.0.1:8765/`；
+- 手机使用终端显示的局域网地址访问。
 
 归档目录改变时：
 
@@ -28,113 +30,91 @@ http://127.0.0.1:8765/
 python local_archive_player.py --root "D:\其他目录\short_videos"
 ```
 
-停止服务：在命令行窗口按 `Ctrl+C`。
-
-## 手机访问与监听地址
-
-默认监听：
-
-```text
-[::]:8765
-```
-
-程序会创建 IPv6 双栈监听器。在 Windows 和大多数现代系统上，同一个端口会同时接受：
-
-- 所有 IPv4 地址，例如 `0.0.0.0:8765`
-- 所有 IPv6 地址，例如 `[::]:8765`
-
-启动终端会自动打印可供手机访问的局域网地址，例如：
-
-```text
-http://192.168.1.23:8765/
-http://[240e:xxxx:xxxx::1234]:8765/
-```
-
-手机和电脑需要连接同一个路由器或局域网。第一次启动时，Windows 防火墙可能弹窗，请只允许“专用网络”。
-
-如果当前系统不能建立 IPv6 双栈监听，可以仅监听全部 IPv4：
+扫描全部视频：
 
 ```powershell
-python local_archive_player.py --host 0.0.0.0
+python local_archive_player.py --scan-limit 0
 ```
 
-服务没有账号和密码，只适合可信的家庭或办公局域网。不要在路由器中把端口 `8765` 映射到公网。
+测试其他数量：
 
-诊断日志查看接口仍然只允许本机访问；手机只能访问视频库、封面、作者信息和视频流。
+```powershell
+python local_archive_player.py --scan-limit 200
+```
 
-## 默认行为
+确实需要启动后自动打开电脑浏览器时：
 
-- 只显示存在 `video.ts`、`video.mp4`、`video.webm`、`video.mkv` 或 `video.mov` 的已下载作品。
-- 随机混合所有作者的本地视频。
-- 纵向滚动、方向键和 PageUp/PageDown 切换视频。
-- 显示标题、作者、播放量、点赞量、评论量和收藏量。
-- 点击作者进入本地作者主页，查看该作者全部已下载作品。
-- 读取 `author.json`、`works.json`、`metadata.json` 以及作品目录。
-- 识别 `cover.jpg/webp/png/avif/bin`，不依赖文件扩展名判断图片格式。
-- 支持 HTTP Range，MP4 可以拖动进度。
-- 不删除、不移动、不修改归档目录中的文件。
+```powershell
+python local_archive_player.py --open
+```
+
+## 播放和作者主页
+
+- 当前视频进入画面后自动播放，离开后自动暂停。
+- 手机端视频底部显示进度条、当前时间和总时长，可直接拖动跳转。
+- 点击作者头像或作者名称打开作者主页。
+- 作者主页只展示本次扫描范围内、且真正存在本地视频文件的作品。
+- 作者作品网格支持滚动；点击封面回到信息流并播放该作品。
+- 默认扫描上限为 50，因此作者主页显示的是这 50 个视频中的作者作品子集。
 
 ## FFmpeg
 
-大部分归档视频是 `video.ts`。Chrome 和 Edge 通常不能直接播放裸 TS，因此需要 FFmpeg，并确保命令行中可以运行：
+大量归档文件是 `video.ts`。Chrome、Edge 和手机浏览器通常不能直接播放裸 TS，因此应确保：
 
 ```powershell
 ffmpeg -version
 ffprobe -version
 ```
 
-`video.ts` 和 `video.mkv` 首次播放时，程序通过 FFmpeg 的 `-c copy` 无损封装为缓存 MP4，不重新编码，也不改变画质。
+`video.ts` 和 `video.mkv` 首次播放时，程序使用 FFmpeg `-c copy` 无损封装为缓存 MP4，不重新编码，也不改变画质。
 
-也可以显式指定 FFmpeg：
+也可以显式指定：
 
 ```powershell
 python local_archive_player.py --ffmpeg "C:\ffmpeg\bin\ffmpeg.exe"
 ```
 
-转换缓存保存在当前 Windows 用户的本地应用数据目录中，不会写入归档目录。
+## 手机访问
+
+程序默认绑定 `[::]:8765`，在支持双栈的 Windows 系统上同时接受 IPv6 和 IPv4。手机与电脑连接同一个局域网后，使用终端打印的地址，例如：
+
+```text
+http://192.168.1.23:8765/
+```
+
+Windows 防火墙弹窗只允许“专用网络”。不要把 8765 端口映射到公网，因为服务没有登录验证。
 
 ## 诊断日志
 
-程序默认把日志写入：
+默认日志目录：
 
 ```text
 %LOCALAPPDATA%\ShortVideosLocalPlayer\logs
 ```
 
-目录中包含：
+包含：
 
-- `startup.json`：Python、Windows、监听模式、局域网 URL、FFmpeg、FFprobe、缓存目录和启动参数。
-- `server.log`：启动、目录扫描和服务状态。
-- `http.log`：请求来源、Range、MIME、计划传输字节、实际传输字节和客户端断开原因。
-- `media.log`：FFmpeg 命令、完整 stderr、ffprobe 编解码器信息、缓存路径和转换结果。
-- `browser.log`：浏览器 video 元素的加载、缓冲、播放、暂停和 MediaError。
+- `startup.json`：启动参数、扫描上限、网络地址、FFmpeg 和缓存目录；
+- `server.log`：扫描开始、完成、耗时和扫描结果；
+- `http.log`：Range 请求、MIME、传输字节和客户端断开；
+- `media.log`：FFmpeg、FFprobe、缓存和编解码器信息；
+- `browser.log`：浏览器播放、缓冲、拖动进度和错误事件。
 
-需要在终端同步显示媒体诊断时：
+详细模式：
 
 ```powershell
 python local_archive_player.py --debug
 ```
 
-也可以指定日志目录：
-
-```powershell
-python local_archive_player.py --log-dir "D:\short-video-player-logs"
-```
-
-本机诊断接口：
-
-```text
-http://127.0.0.1:8765/api/diagnostics?id=作品ID
-```
-
 ## 参数
 
 ```text
---root      归档根目录
---host      监听地址，默认 ::，同时接受 IPv6 和 IPv4
---port      监听端口，默认 8765
---ffmpeg    FFmpeg 可执行文件路径
---log-dir   诊断日志目录
---debug     在终端同步输出详细媒体日志
---no-open   启动后不自动打开浏览器
+--root          归档根目录
+--host          监听地址，默认 ::
+--port          监听端口，默认 8765
+--scan-limit    最多扫描的视频数量，默认 50；0 表示不限
+--ffmpeg        FFmpeg 可执行文件路径
+--log-dir       诊断日志目录
+--debug         在终端同步输出详细日志
+--open          启动后自动打开电脑浏览器，默认关闭
 ```
