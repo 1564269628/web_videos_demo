@@ -6,31 +6,40 @@
 <meta name="theme-color" content="#050505">
 <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
 <title>本地短视频库</title>
-<link rel="stylesheet" href="/assets/style.css?v=20260804-3">
+<link rel="stylesheet" href="/assets/style.css?v=20260804-5">
 </head>
 <body>
 <div class="app">
   <aside class="sidebar">
     <div class="brand"><span class="brand-mark">▶</span><span>本地短视频库</span></div>
-    <nav><button class="nav-btn active">推荐</button><button id="shuffle-side" class="nav-btn">重新随机</button><button id="rescan-side" class="nav-btn">重新扫描目录</button></nav>
+    <nav><button type="button" class="nav-btn active">推荐</button><button type="button" id="shuffle-side" class="nav-btn">重新随机</button><button type="button" id="rescan-side" class="nav-btn">重新扫描目录</button></nav>
     <div class="sidebar-stats" id="sidebar-stats">正在读取本地归档…</div>
   </aside>
   <main class="workspace">
     <header class="topbar">
       <div class="tabs"><span class="tab">关注</span><span class="tab active">推荐</span></div>
-      <div class="top-actions"><button id="shuffle" class="pill">🔀 <span>重新随机</span></button><button id="rescan" class="pill">↻ <span>重新扫描</span></button></div>
+      <div class="top-actions"><button type="button" id="shuffle" class="pill">🔀 <span>重新随机</span></button><button type="button" id="rescan" class="pill">↻ <span>重新扫描</span></button></div>
     </header>
     <section id="feed" class="feed"><div class="empty"><div><span class="spinner"></span>正在扫描本地视频…</div></div></section>
   </main>
 </div>
 <div id="author-modal" class="modal" hidden>
   <section class="sheet" role="dialog" aria-modal="true" aria-label="作者主页">
-    <header class="sheet-head"><img id="author-avatar" alt="作者头像"><div class="author-copy"><h2 id="author-name">作者</h2><p id="author-uid"></p><p id="author-signature"></p><div id="author-stats" class="stats"></div></div><button id="author-close" class="close" aria-label="关闭">×</button></header>
+    <header class="sheet-head">
+      <img id="author-avatar" alt="作者头像">
+      <div class="author-copy">
+        <h2 id="author-name">作者</h2>
+        <p id="author-uid"></p>
+        <p id="author-signature"></p>
+        <div id="author-stats" class="stats"></div>
+      </div>
+      <button type="button" id="author-close" class="close" aria-label="关闭">×</button>
+    </header>
     <div class="works-toolbar"><strong>本地作品</strong><span id="works-status"></span></div>
     <div id="works-grid" class="works-grid"></div>
   </section>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="/assets/app.js?v=20260804-3"></script>
+<script src="/assets/app.js?v=20260804-5"></script>
 </body>
 </html>
