@@ -4,14 +4,20 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .catalog import Catalog
+from .catalog import Catalog, DEFAULT_SCAN_LIMIT
 from .diagnostics import Diagnostics
 from .media import MediaManager
 
 
 class Library:
-    def __init__(self, root: Path, ffmpeg: str | None, diagnostics: Diagnostics):
-        self.catalog = Catalog(root)
+    def __init__(
+        self,
+        root: Path,
+        ffmpeg: str | None,
+        diagnostics: Diagnostics,
+        scan_limit: int = DEFAULT_SCAN_LIMIT,
+    ):
+        self.catalog = Catalog(root, scan_limit=scan_limit)
         self.media = MediaManager(self.catalog, ffmpeg, diagnostics)
         self.ffmpeg = ffmpeg
         self.diagnostics = diagnostics
@@ -22,7 +28,12 @@ class Library:
 
     def scan(self) -> dict[str, Any]:
         started = time.time()
-        self.diagnostics.event("server", "catalog_scan_started", root=str(self.catalog.root))
+        self.diagnostics.event(
+            "server",
+            "catalog_scan_started",
+            root=str(self.catalog.root),
+            scanLimit=self.catalog.scan_limit,
+        )
         try:
             self.catalog.scan()
             summary = self.summary()
@@ -39,6 +50,7 @@ class Library:
                 "catalog_scan_failed",
                 exc,
                 root=str(self.catalog.root),
+                scanLimit=self.catalog.scan_limit,
                 elapsedSeconds=round(time.time() - started, 3),
             )
             raise
