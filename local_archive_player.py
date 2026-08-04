@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""本地短视频媒体库入口。代码目录可以放在任意位置。"""
+"""只读本地短视频媒体库。默认扫描 50 个视频，不自动打开浏览器。"""
 from __future__ import annotations
 
 import argparse
@@ -9,7 +9,6 @@ import mimetypes
 import re
 import socket
 import sys
-import threading
 import time
 import urllib.parse
 import uuid
@@ -19,13 +18,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from local_player.catalog import APP_VERSION, DEFAULT_PORT, DEFAULT_ROOT, safe_int, sniff_image_type
+from local_player.catalog import (
+    APP_VERSION,
+    DEFAULT_PORT,
+    DEFAULT_ROOT,
+    DEFAULT_SCAN_LIMIT,
+    safe_int,
+    sniff_image_type,
+)
 from local_player.diagnostics import Diagnostics, default_log_root
 from local_player.library import Library
 from local_player.media import find_ffmpeg, media_mime
 
 WEB_DIR = Path(__file__).resolve().with_name("local_player_web")
-PLACEHOLDER_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="720" height="960"><rect width="100%" height="100%" fill="#151515"/><circle cx="360" cy="430" r="90" fill="#ffffff18"/><path d="M330 370l105 60-105 60z" fill="#fff"/><text x="360" y="590" text-anchor="middle" fill="#aaa" font-size="30" font-family="sans-serif">本地视频</text></svg>""".encode("utf-8")
+PLACEHOLDER_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" width="720" height="960"><rect width="100%" height="100%" fill="#151515"/><circle cx="360" cy="430" r="90" fill="#ffffff18"/><path d="M330 370l105 60-105 60z" fill="#fff"/><text x="360" y="590" text-anchor="middle" fill="#aaa" font-size="30" font-family="sans-serif">本地视频</text></svg>'''.encode("utf-8")
 DISCONNECT_ERRORS = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
 DEFAULT_LISTEN_HOST = "::"
 
@@ -39,9 +45,7 @@ def parse_range(value: str, size: int) -> tuple[int, int] | None:
         return None
     if not start_text:
         length = int(end_text)
-        if length <= 0:
-            return None
-        return max(0, size - length), size - 1
+        return (max(0, size - length), size - 1) if length > 0 else None
     start = int(start_text)
     end = int(end_text) if end_text else size - 1
     if start >= size or start > end:
@@ -58,7 +62,6 @@ def content_type_for(path: Path, explicit: str | None = None) -> str:
 
 
 def normalized_ip(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
-    """Parse normal and IPv4-mapped IPv6 addresses, ignoring a zone suffix."""
     try:
         address = ipaddress.ip_address(value.split("%", 1)[0])
     except ValueError:
@@ -69,20 +72,16 @@ def normalized_ip(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address |
 
 
 def format_url(host: str, port: int) -> str:
-    host = host.split("%", 1)[0]
-    return f"http://[{host}]:{port}/" if ":" in host else f"http://{host}:{port}/"
+    clean = host.split("%", 1)[0]
+    return f"http://[{clean}]:{port}/" if ":" in clean else f"http://{clean}:{port}/"
 
 
-def browser_url(host: str, port: int) -> str:
-    if host in ("", "0.0.0.0", "::"):
-        return f"http://127.0.0.1:{port}/"
-    return format_url(host, port)
+def local_url(host: str, port: int) -> str:
+    return f"http://127.0.0.1:{port}/" if host in ("", "0.0.0.0", "::") else format_url(host, port)
 
 
 def discover_access_urls(port: int) -> list[str]:
-    """Best-effort list of LAN addresses for display; listening does not depend on it."""
     addresses: set[str] = set()
-
     try:
         for family, _, _, _, sockaddr in socket.getaddrinfo(
             socket.gethostname(), port, socket.AF_UNSPEC, socket.SOCK_STREAM
@@ -91,7 +90,6 @@ def discover_access_urls(port: int) -> list[str]:
                 addresses.add(sockaddr[0])
     except OSError:
         pass
-
     for family, target in (
         (socket.AF_INET, ("192.0.2.1", 9)),
         (socket.AF_INET6, ("2001:db8::1", 9, 0, 0)),
@@ -117,8 +115,6 @@ def discover_access_urls(port: int) -> list[str]:
 
 
 class DualStackThreadingHTTPServer(ThreadingHTTPServer):
-    """IPv6 wildcard listener that also accepts IPv4-mapped connections."""
-
     address_family = socket.AF_INET6
     allow_reuse_address = True
 
@@ -131,7 +127,7 @@ class DualStackThreadingHTTPServer(ThreadingHTTPServer):
                     socket.IPPROTO_IPV6, socket.IPV6_V6ONLY
                 ) == 0
             except OSError:
-                self.dual_stack_enabled = False
+                pass
         super().server_bind()
 
 
@@ -142,11 +138,11 @@ class IPv4ThreadingHTTPServer(ThreadingHTTPServer):
 
 def make_server(host: str, port: int, handler: type[BaseHTTPRequestHandler]) -> ThreadingHTTPServer:
     address = normalized_ip(host)
-    server_class: type[ThreadingHTTPServer]
-    if isinstance(address, ipaddress.IPv6Address) or host == "::":
-        server_class = DualStackThreadingHTTPServer
-    else:
-        server_class = IPv4ThreadingHTTPServer
+    server_class = (
+        DualStackThreadingHTTPServer
+        if isinstance(address, ipaddress.IPv6Address) or host == "::"
+        else IPv4ThreadingHTTPServer
+    )
     server = server_class((host, port), handler)
     server.daemon_threads = True
     return server
@@ -223,7 +219,6 @@ class Handler(BaseHTTPRequestHandler):
             query=parsed.query,
             range=self.headers.get("Range"),
             userAgent=self.headers.get("User-Agent"),
-            referer=self.headers.get("Referer"),
         )
         try:
             if path == "/":
@@ -235,62 +230,55 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/summary":
                 self.send_json(self.library.summary())
             elif path == "/api/feed":
-                seed = (query.get("seed") or [str(int(time.time()))])[0]
-                offset = safe_int((query.get("offset") or [0])[0])
-                limit = safe_int((query.get("limit") or [18])[0], 18)
-                self.send_json(self.library.feed(seed, offset, limit))
+                self.send_json(self.library.feed(
+                    (query.get("seed") or [str(int(time.time()))])[0],
+                    safe_int((query.get("offset") or [0])[0]),
+                    safe_int((query.get("limit") or [18])[0], 18),
+                ))
             elif path == "/api/author":
-                author_id = (query.get("id") or [""])[0]
                 payload = self.library.author_payload(
-                    author_id,
+                    (query.get("id") or [""])[0],
                     safe_int((query.get("offset") or [0])[0]),
                     safe_int((query.get("limit") or [80])[0], 80),
                 )
-                if payload is None:
-                    self.send_json({"error": "作者不存在"}, HTTPStatus.NOT_FOUND)
-                else:
-                    self.send_json(payload)
+                self.send_json(
+                    payload if payload is not None else {"error": "作者不存在"},
+                    HTTPStatus.OK if payload is not None else HTTPStatus.NOT_FOUND,
+                )
             elif path == "/api/video":
-                work_id = (query.get("id") or [""])[0]
-                payload = self.library.public_work(work_id)
-                if payload is None:
-                    self.send_json({"error": "视频不存在"}, HTTPStatus.NOT_FOUND)
-                else:
-                    self.send_json(payload)
+                payload = self.library.public_work((query.get("id") or [""])[0])
+                self.send_json(
+                    payload if payload is not None else {"error": "视频不存在"},
+                    HTTPStatus.OK if payload is not None else HTTPStatus.NOT_FOUND,
+                )
             elif path == "/api/play":
-                work_id = (query.get("id") or [""])[0]
-                payload = self.library.play_status(work_id)
-                if payload is None:
-                    self.send_json({"error": "视频不存在"}, HTTPStatus.NOT_FOUND)
-                else:
-                    self.send_json(payload)
+                payload = self.library.play_status((query.get("id") or [""])[0])
+                self.send_json(
+                    payload if payload is not None else {"error": "视频不存在"},
+                    HTTPStatus.OK if payload is not None else HTTPStatus.NOT_FOUND,
+                )
             elif path == "/api/diagnostics":
                 if not self._require_loopback():
                     return
-                work_id = (query.get("id") or [""])[0]
-                payload = self.library.diagnostics_payload(work_id)
-                if payload is None:
-                    self.send_json({"error": "视频不存在"}, HTTPStatus.NOT_FOUND)
-                else:
-                    self.send_json(payload)
-            elif path == "/api/logs":
-                if not self._require_loopback():
-                    return
+                payload = self.library.diagnostics_payload((query.get("id") or [""])[0])
                 self.send_json(
-                    {
+                    payload if payload is not None else {"error": "视频不存在"},
+                    HTTPStatus.OK if payload is not None else HTTPStatus.NOT_FOUND,
+                )
+            elif path == "/api/logs":
+                if self._require_loopback():
+                    self.send_json({
                         "logDir": str(self.diagnostics.log_dir),
                         "files": {
                             name: str(self.diagnostics.path(name))
                             for name in ("server", "http", "media", "browser")
                         },
-                    }
-                )
+                    })
             elif path == "/api/log-tail":
                 if not self._require_loopback():
                     return
-                name = (query.get("name") or ["browser"])[0]
                 try:
-                    text = self.diagnostics.tail(name)
+                    text = self.diagnostics.tail((query.get("name") or ["browser"])[0])
                 except ValueError as exc:
                     self.send_json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
                 else:
@@ -301,34 +289,32 @@ class Handler(BaseHTTPRequestHandler):
                     )
             elif path.startswith("/media/"):
                 work_id = path.rsplit("/", 1)[-1]
-                source_kind = (query.get("source") or ["original"])[0]
-                file_path = self.library.playable_path(work_id, source_kind)
+                source = (query.get("source") or ["original"])[0]
+                file_path = self.library.playable_path(work_id, source)
                 if not file_path:
                     self.send_error(HTTPStatus.NOT_FOUND, "视频文件不存在")
                 else:
                     self.send_file(
                         file_path,
                         media_mime(file_path),
-                        media_context={"workId": work_id, "source": source_kind},
+                        media_context={"workId": work_id, "source": source},
                     )
             elif path.startswith("/cover/"):
-                work_id = path.rsplit("/", 1)[-1]
-                image_path, image_type = self.library.cover_path(work_id)
+                image_path, image_type = self.library.cover_path(path.rsplit("/", 1)[-1])
                 if image_path:
                     self.send_file(image_path, image_type)
                 else:
                     self.send_bytes(PLACEHOLDER_SVG, "image/svg+xml")
             elif path.startswith("/avatar/"):
-                author_id = path.rsplit("/", 1)[-1]
-                author = self.library.authors.get(author_id)
-                if author and author.avatar and sniff_image_type(author.avatar):
-                    self.send_file(author.avatar, sniff_image_type(author.avatar))
+                author = self.library.authors.get(path.rsplit("/", 1)[-1])
+                if author and author.avatar and (image_type := sniff_image_type(author.avatar)):
+                    self.send_file(author.avatar, image_type)
                 else:
                     self.send_bytes(PLACEHOLDER_SVG, "image/svg+xml")
             else:
                 self.send_error(HTTPStatus.NOT_FOUND)
         except DISCONNECT_ERRORS as exc:
-            self._log_disconnect(exc, phase="route")
+            self._log_disconnect(exc, "route")
         except Exception as exc:
             self.diagnostics.exception(
                 "http",
@@ -336,7 +322,6 @@ class Handler(BaseHTTPRequestHandler):
                 exc,
                 requestId=self.request_id,
                 remote=self._remote(),
-                method="GET",
                 path=path,
                 responseStarted=self.response_started,
                 responseStatus=self.response_status,
@@ -344,31 +329,22 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             if not self.response_started:
                 try:
-                    self.send_json({"error": str(exc), "requestId": self.request_id}, HTTPStatus.INTERNAL_SERVER_ERROR)
-                except DISCONNECT_ERRORS as disconnect:
-                    self._log_disconnect(disconnect, phase="error_response")
+                    self.send_json(
+                        {"error": str(exc), "requestId": self.request_id},
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                    )
+                except DISCONNECT_ERRORS:
+                    pass
 
     def do_POST(self) -> None:
         self._begin()
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-        self.diagnostics.event(
-            "http",
-            "request_started",
-            requestId=self.request_id,
-            remote=self._remote(),
-            method="POST",
-            path=path,
-            contentType=self.headers.get("Content-Type"),
-            contentLength=self.headers.get("Content-Length"),
-            userAgent=self.headers.get("User-Agent"),
-        )
+        path = urllib.parse.urlparse(self.path).path
         try:
             if path == "/api/rescan":
                 self._discard_body()
                 self.send_json(self.library.scan())
             elif path == "/api/client-log":
-                payload = self._read_json_body(max_bytes=256 * 1024)
+                payload = self._read_json_body(256 * 1024)
                 accepted = self.diagnostics.append_browser_events(
                     payload,
                     remote=self._remote(),
@@ -379,23 +355,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._discard_body()
                 self.send_error(HTTPStatus.NOT_FOUND)
         except DISCONNECT_ERRORS as exc:
-            self._log_disconnect(exc, phase="post")
+            self._log_disconnect(exc, "post")
         except Exception as exc:
             self.diagnostics.exception(
-                "http",
-                "post_failed",
-                exc,
-                requestId=self.request_id,
-                remote=self._remote(),
-                path=path,
-                responseStarted=self.response_started,
+                "http", "post_failed", exc, requestId=self.request_id, path=path
             )
-            self.close_connection = True
             if not self.response_started:
-                try:
-                    self.send_json({"error": str(exc), "requestId": self.request_id}, HTTPStatus.INTERNAL_SERVER_ERROR)
-                except DISCONNECT_ERRORS:
-                    pass
+                self.send_json({"error": str(exc)}, HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def _read_json_body(self, max_bytes: int) -> Any:
         length = safe_int(self.headers.get("Content-Length"), 0)
@@ -428,24 +394,15 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Connection", "keep-alive")
         for key, value in (extra_headers or {}).items():
             self.send_header(key, value)
         self.end_headers()
         try:
             self.wfile.write(data)
         except DISCONNECT_ERRORS as exc:
-            self._log_disconnect(exc, phase="send_bytes", plannedBytes=len(data), sentBytes=0)
-            return
-        self.diagnostics.event(
-            "http",
-            "response_completed",
-            requestId=self.request_id,
-            status=int(status),
-            contentType=content_type,
-            bytesSent=len(data),
-            elapsedMs=round((time.time() - self.request_started) * 1000, 2),
-        )
+            self._log_disconnect(
+                exc, "send_bytes", plannedBytes=len(data), sentBytes=0
+            )
 
     def send_file(
         self,
@@ -460,23 +417,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         size = path.stat().st_size
         mime = content_type_for(path, content_type)
-        range_value = self.headers.get("Range", "")
-        byte_range = parse_range(range_value, size) if range_value else None
-        if range_value and byte_range is None:
+        range_header = self.headers.get("Range", "")
+        byte_range = parse_range(range_header, size) if range_header else None
+        if range_header and byte_range is None:
             self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
             self.send_header("Content-Range", f"bytes */{size}")
             self.send_header("Content-Length", "0")
             self.end_headers()
-            self.diagnostics.event(
-                "http",
-                "range_rejected",
-                requestId=self.request_id,
-                path=str(path),
-                fileBytes=size,
-                range=range_value,
-                **(media_context or {}),
-            )
             return
+
         start, end = byte_range or (0, size - 1)
         length = end - start + 1
         status = HTTPStatus.PARTIAL_CONTENT if byte_range else HTTPStatus.OK
@@ -486,10 +435,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Cache-Control", cache_control)
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Connection", "keep-alive")
         if byte_range:
             self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
         self.end_headers()
+
         sent = 0
         self.diagnostics.event(
             "http",
@@ -499,7 +448,7 @@ class Handler(BaseHTTPRequestHandler):
             status=int(status),
             contentType=mime,
             fileBytes=size,
-            range=range_value or None,
+            range=range_header or None,
             rangeStart=start,
             rangeEnd=end,
             plannedBytes=length,
@@ -519,11 +468,11 @@ class Handler(BaseHTTPRequestHandler):
         except DISCONNECT_ERRORS as exc:
             self._log_disconnect(
                 exc,
-                phase="send_file",
+                "send_file",
                 filePath=str(path),
                 plannedBytes=length,
                 sentBytes=sent,
-                range=range_value or None,
+                range=range_header or None,
                 **(media_context or {}),
             )
             return
@@ -534,11 +483,8 @@ class Handler(BaseHTTPRequestHandler):
             path=str(path),
             status=int(status),
             contentType=mime,
-            fileBytes=size,
             plannedBytes=length,
             sentBytes=sent,
-            range=range_value or None,
-            elapsedMs=round((time.time() - self.request_started) * 1000, 2),
             **(media_context or {}),
         )
 
@@ -549,39 +495,58 @@ class Handler(BaseHTTPRequestHandler):
             "client_disconnected",
             requestId=getattr(self, "request_id", "unknown"),
             remote=self._remote(),
-            method=getattr(self, "command", ""),
             requestPath=getattr(self, "path", ""),
             phase=phase,
             errorType=type(exc).__name__,
             error=str(exc),
             responseStarted=getattr(self, "response_started", False),
             responseStatus=getattr(self, "response_status", None),
-            elapsedMs=round((time.time() - getattr(self, "request_started", time.time())) * 1000, 2),
             **fields,
         )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="本地抖音式短视频媒体库")
-    parser.add_argument("--root", type=Path, default=DEFAULT_ROOT, help=f"归档根目录，默认 {DEFAULT_ROOT}")
     parser.add_argument(
-        "--host",
-        default=DEFAULT_LISTEN_HOST,
-        help="监听地址；默认 ::，在支持双栈的系统上同时监听所有 IPv6 和 IPv4 地址",
+        "--root", type=Path, default=DEFAULT_ROOT,
+        help=f"归档根目录，默认 {DEFAULT_ROOT}",
     )
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"端口，默认 {DEFAULT_PORT}")
+    parser.add_argument(
+        "--host", default=DEFAULT_LISTEN_HOST,
+        help="监听地址，默认 ::（IPv6 + IPv4 双栈）",
+    )
+    parser.add_argument(
+        "--port", type=int, default=DEFAULT_PORT,
+        help=f"端口，默认 {DEFAULT_PORT}",
+    )
+    parser.add_argument(
+        "--scan-limit",
+        type=int,
+        default=DEFAULT_SCAN_LIMIT,
+        help=f"最多扫描多少个已下载视频，默认 {DEFAULT_SCAN_LIMIT}；0 表示不限",
+    )
     parser.add_argument("--ffmpeg", help="FFmpeg 可执行文件路径；默认从 PATH 查找")
-    parser.add_argument("--log-dir", type=Path, default=default_log_root(), help="诊断日志目录")
-    parser.add_argument("--debug", action="store_true", help="在终端同时输出详细媒体日志")
-    parser.add_argument("--no-open", action="store_true", help="启动后不自动打开浏览器")
+    parser.add_argument(
+        "--log-dir", type=Path, default=default_log_root(), help="诊断日志目录"
+    )
+    parser.add_argument(
+        "--debug", action="store_true", help="在终端同时输出详细媒体日志"
+    )
+    parser.add_argument(
+        "--open", action="store_true", help="启动后自动打开本机网页；默认不打开"
+    )
+    parser.add_argument("--no-open", action="store_true", help=argparse.SUPPRESS)
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    scan_limit = max(0, args.scan_limit)
     diagnostics = Diagnostics(args.log_dir, debug=args.debug)
     ffmpeg = find_ffmpeg(args.ffmpeg)
-    library = Library(args.root.expanduser(), ffmpeg, diagnostics)
+    library = Library(
+        args.root.expanduser(), ffmpeg, diagnostics, scan_limit=scan_limit
+    )
     try:
         summary = library.scan()
     except Exception as exc:
@@ -595,23 +560,29 @@ def main() -> int:
     try:
         server = make_server(args.host, args.port, Handler)
     except OSError as exc:
-        diagnostics.exception("server", "listen_failed", exc, host=args.host, port=args.port)
+        diagnostics.exception(
+            "server", "listen_failed", exc, host=args.host, port=args.port
+        )
         print(f"[错误] 无法监听 {args.host}:{args.port}：{exc}", file=sys.stderr)
         print("可尝试 --host 0.0.0.0 仅监听全部 IPv4 地址。", file=sys.stderr)
         return 3
 
     dual_stack = bool(getattr(server, "dual_stack_enabled", False))
-    local_url = browser_url(args.host, args.port)
+    computer_url = local_url(args.host, args.port)
     lan_urls = discover_access_urls(args.port)
     diagnostics.startup_snapshot(
         appVersion=APP_VERSION,
         archiveRoot=str(args.root.expanduser().resolve()),
+        scanLimit=scan_limit,
         host=args.host,
         port=args.port,
-        addressFamily="IPv6" if server.address_family == socket.AF_INET6 else "IPv4",
+        addressFamily=(
+            "IPv6" if server.address_family == socket.AF_INET6 else "IPv4"
+        ),
         dualStack=dual_stack,
-        localUrl=local_url,
+        localUrl=computer_url,
         lanUrls=lan_urls,
+        autoOpen=bool(args.open and not args.no_open),
         ffmpeg=ffmpeg,
         ffprobe=library.media.ffprobe,
         cacheDir=str(library.media.cache),
@@ -619,42 +590,40 @@ def main() -> int:
     diagnostics.event(
         "server",
         "server_listening",
-        bindHost=args.host,
-        port=args.port,
-        addressFamily="IPv6" if server.address_family == socket.AF_INET6 else "IPv4",
-        dualStack=dual_stack,
-        localUrl=local_url,
-        lanUrls=lan_urls,
         summary=summary,
+        localUrl=computer_url,
+        lanUrls=lan_urls,
     )
 
     print("=" * 72)
     print("本地短视频库已启动")
     print(f"归档目录：{summary['root']}")
-    print(f"作者数量：{summary['authorCount']}，本地视频：{summary['videoCount']}")
-    print(f"FFmpeg：{'已检测到 ' + library.ffmpeg if library.ffmpeg else '未检测到'}")
-    print(f"FFprobe：{'已检测到 ' + library.media.ffprobe if library.media.ffprobe else '未检测到'}")
+    print(
+        f"本次扫描：{summary['videoCount']} 个视频，"
+        f"{summary['authorCount']} 位作者"
+    )
+    print(f"扫描上限：{'不限' if scan_limit == 0 else scan_limit}")
     print(f"监听地址：{args.host}:{args.port}")
     if server.address_family == socket.AF_INET6:
-        print(f"网络模式：IPv6{' + IPv4 双栈' if dual_stack else '（当前系统未启用 IPv4 双栈）'}")
-    else:
-        print("网络模式：IPv4")
-    print(f"本机访问：{local_url}")
+        print(
+            f"网络模式：IPv6"
+            f"{' + IPv4 双栈' if dual_stack else '（未启用 IPv4 双栈）'}"
+        )
+    print(f"电脑访问：{computer_url}")
     if lan_urls:
-        print("手机访问（手机与电脑连接同一局域网）：")
+        print("手机访问（同一局域网）：")
         for url in lan_urls:
             print(f"  {url}")
     else:
-        print("未自动识别局域网 IP，请在 Windows 中运行 ipconfig 后使用 WLAN/以太网地址。")
-    print(f"缓存目录：{library.media.cache}")
+        print("未自动识别局域网 IP，请运行 ipconfig 后使用 WLAN/以太网地址。")
+    print("网页不会自动打开，请手动输入上面的地址。")
     print(f"日志目录：{diagnostics.log_dir}")
-    print("注意：服务没有登录验证，只应在可信的家庭/办公局域网中使用，不要映射公网端口。")
-    print("Windows 防火墙弹窗请选择仅允许“专用网络”。")
-    print("按 Ctrl+C 停止。程序不会修改归档目录。")
+    print("注意：服务没有登录验证，只应在可信局域网中使用，不要映射公网端口。")
+    print("按 Ctrl+C 停止。")
     print("=" * 72)
 
-    if not args.no_open:
-        threading.Timer(0.6, lambda: webbrowser.open(local_url)).start()
+    if args.open and not args.no_open:
+        webbrowser.open(computer_url)
     try:
         server.serve_forever(poll_interval=0.4)
     except KeyboardInterrupt:
