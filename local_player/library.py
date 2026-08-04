@@ -1,26 +1,62 @@
+from __future__ import annotations
+
+import time
 from pathlib import Path
 from typing import Any
 
 from .catalog import Catalog
+from .diagnostics import Diagnostics
 from .media import MediaManager
 
 
 class Library:
-    def __init__(self, root: Path, ffmpeg: str | None):
+    def __init__(self, root: Path, ffmpeg: str | None, diagnostics: Diagnostics):
         self.catalog = Catalog(root)
-        self.media = MediaManager(self.catalog, ffmpeg)
+        self.media = MediaManager(self.catalog, ffmpeg, diagnostics)
         self.ffmpeg = ffmpeg
+        self.diagnostics = diagnostics
 
     @property
     def authors(self):
         return self.catalog.authors
 
     def scan(self) -> dict[str, Any]:
-        self.catalog.scan()
-        return self.summary()
+        started = time.time()
+        self.diagnostics.event("server", "catalog_scan_started", root=str(self.catalog.root))
+        try:
+            self.catalog.scan()
+            summary = self.summary()
+            self.diagnostics.event(
+                "server",
+                "catalog_scan_completed",
+                elapsedSeconds=round(time.time() - started, 3),
+                summary=summary,
+            )
+            return summary
+        except Exception as exc:
+            self.diagnostics.exception(
+                "server",
+                "catalog_scan_failed",
+                exc,
+                root=str(self.catalog.root),
+                elapsedSeconds=round(time.time() - started, 3),
+            )
+            raise
 
     def summary(self) -> dict[str, Any]:
-        return self.catalog.summary(bool(self.ffmpeg))
+        summary = self.catalog.summary(bool(self.ffmpeg))
+        summary.update(
+            {
+                "logDir": str(self.diagnostics.log_dir),
+                "logFiles": {
+                    name: str(self.diagnostics.path(name))
+                    for name in ("server", "http", "media", "browser")
+                },
+                "ffprobeAvailable": bool(self.media.ffprobe),
+                "cacheDir": str(self.media.cache),
+            }
+        )
+        return summary
 
     def feed(self, seed: str, offset: int, limit: int):
         return self.catalog.feed(seed, offset, limit)
@@ -36,6 +72,9 @@ class Library:
 
     def playable_path(self, work_id: str, source: str):
         return self.media.playable_path(work_id, source)
+
+    def diagnostics_payload(self, work_id: str):
+        return self.media.diagnostics_payload(work_id)
 
     def cover_path(self, work_id: str):
         return self.media.cover(work_id)
